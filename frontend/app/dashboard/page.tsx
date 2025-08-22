@@ -12,6 +12,7 @@ import { uploadFile, getUserFiles, deleteFile, formatFileSize } from "@/lib/file
 import { createPublication, getPublications, deletePublication } from "@/lib/publication-service"
 import { RecentDocuments } from "@/components/recent-documents"
 import { RecentPublications } from "@/components/recent-publications"
+import { PublicationForm } from "@/components/publication-form"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -57,6 +58,24 @@ interface PublicationResponse {
     id: string;
     name: string;
   };
+  tagged_members?: Array<{
+    id: string;
+    name: string;
+    username: string;
+  }>;
+  tagged_externals?: Array<{
+    id: string;
+    name: string;
+    email: string;
+  }>;
+  attached_files?: Array<{
+    id: string;
+    name: string;
+    file: string;
+    file_type: string;
+    size: number;
+  }>;
+  keywords?: string[];
 }
 
 export default function DashboardPage() {
@@ -69,6 +88,7 @@ export default function DashboardPage() {
     getConversation,
     getConversations,
     getUnreadCount,
+    fetchUsers,
     loading,
   } = useAuth()
   const router = useRouter()
@@ -82,7 +102,19 @@ export default function DashboardPage() {
   const [showPublications, setShowPublications] = useState(false)
   const [userFiles, setUserFiles] = useState<FileResponse[]>([])
   const [publications, setPublications] = useState<PublicationResponse[]>([])
-  const [publicationForm, setPublicationForm] = useState({ title: "", abstract: "" })
+  const [conversations, setConversations] = useState<any[]>([])
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [selectedConversationMessages, setSelectedConversationMessages] = useState<any[]>([])
+
+  // Function to load conversation messages when a conversation is selected
+  const loadConversationMessages = async (userId: string) => {
+    try {
+      const messages = await getConversation(userId)
+      setSelectedConversationMessages(messages)
+    } catch (error) {
+      console.error('Error loading conversation:', error)
+    }
+  }
 
   useEffect(() => {
     if (!user && !loading) {
@@ -99,8 +131,39 @@ export default function DashboardPage() {
       getPublications()
         .then(pubs => setPublications(pubs))
         .catch(error => console.error('Error fetching publications:', error));
+      
+      // Fetch conversations and unread count
+      getConversations()
+        .then(conv => setConversations(conv))
+        .catch(error => console.error('Error fetching conversations:', error));
+      
+      getUnreadCount()
+        .then(count => setUnreadCount(count))
+        .catch(error => console.error('Error fetching unread count:', error));
+      
+      fetchUsers()
+        .then(() => console.log('Users fetched successfully:', users.length))
+        .catch(error => console.error('Error fetching users:', error));
     }
   }, [user])
+
+  // Update selected conversation messages when conversation changes
+  useEffect(() => {
+    if (selectedConversation) {
+      loadConversationMessages(selectedConversation)
+    } else {
+      setSelectedConversationMessages([])
+    }
+  }, [selectedConversation])
+
+  const handlePublicationSuccess = async () => {
+    try {
+      const updatedPublications = await getPublications()
+      setPublications(updatedPublications)
+    } catch (error) {
+      console.error('Error refreshing publications:', error)
+    }
+  }
 
   if (loading) {
     return <div>Loading...</div>
@@ -110,23 +173,14 @@ export default function DashboardPage() {
     return null
   }
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (selectedUser && messageForm.subject && messageForm.message) {
-      sendInternalMessage(selectedUser, messageForm.subject, messageForm.message, replyToMessage || undefined)
-      setMessageForm({ subject: "", message: "" })
-      setReplyToMessage(null)
-    }
-  }
-
-  const handleCreatePublication = async () => {
-    if (publicationForm.title && publicationForm.abstract) {
       try {
-        await createPublication(publicationForm)
-        const updatedPublications = await getPublications()
-        setPublications(updatedPublications)
-        setPublicationForm({ title: "", abstract: "" })
+        await sendInternalMessage(selectedUser, messageForm.subject, messageForm.message, replyToMessage || undefined)
+        setMessageForm({ subject: "", message: "" })
+        setReplyToMessage(null)
       } catch (error) {
-        console.error('Error creating publication:', error)
+        console.error('Error sending message:', error)
       }
     }
   }
@@ -140,10 +194,6 @@ export default function DashboardPage() {
     })
     setShowMessaging(true)
   }
-
-  const unreadCount = getUnreadCount()
-  const conversations = getConversations()
-  const selectedConversationMessages = selectedConversation ? getConversation(selectedConversation) : []
   
   // Dynamic stats calculation
   const myDocumentsCount = userFiles.filter(file => file.uploaded_by?.id === user.id).length
@@ -571,40 +621,14 @@ export default function DashboardPage() {
                       <CardDescription>Partagez vos publications et recherches avec l'équipe</CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <div className="space-y-4">
-                        {/* Publication Form */}
-                        <div className="border-b pb-4">
-                          <h4 className="font-medium text-gray-800 mb-3">Partager une nouvelle publication</h4>
-                          <div className="space-y-3">
-                            <div>
-                              <Label htmlFor="pub-title">Titre de la publication</Label>
-                              <Input
-                                id="pub-title"
-                                value={publicationForm.title}
-                                onChange={(e) => setPublicationForm(prev => ({ ...prev, title: e.target.value }))}
-                                placeholder="Titre de votre publication..."
-                              />
-                            </div>
-                            <div>
-                              <Label htmlFor="pub-abstract">Résumé</Label>
-                              <Textarea
-                                id="pub-abstract"
-                                value={publicationForm.abstract}
-                                onChange={(e) => setPublicationForm(prev => ({ ...prev, abstract: e.target.value }))}
-                                placeholder="Résumé de la publication..."
-                                rows={4}
-                              />
-                            </div>
-
-                            <Button 
-                              className="bg-gradient-to-r from-green-600 to-emerald-600 text-white"
-                              onClick={handleCreatePublication}
-                              disabled={!publicationForm.title || !publicationForm.abstract}
-                            >
-                              <BookOpen className="h-4 w-4 mr-2" />
-                              Partager la publication
-                            </Button>
-                          </div>
+                      <div className="space-y-6">
+                        {/* Enhanced Publication Form */}
+                        <div className="border-b pb-6">
+                          <h4 className="font-medium text-gray-800 mb-4">Partager une nouvelle publication</h4>
+                          <PublicationForm 
+                            onSuccess={handlePublicationSuccess}
+                            onCancel={() => setShowPublications(false)}
+                          />
                         </div>
 
                         <RecentPublications 

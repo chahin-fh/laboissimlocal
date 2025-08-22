@@ -17,6 +17,14 @@ class SiteContent(models.Model):
     def __str__(self):
         return "Site Content Settings"
 
+class exterieurs(models.Model):
+    name = models.CharField(max_length=255)
+    email = models.EmailField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     phone = models.CharField(max_length=20, blank=True, null=True)
@@ -65,9 +73,139 @@ class Publication(models.Model):
     abstract = models.TextField()
     posted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     posted_at = models.DateTimeField(auto_now_add=True)
+    # New fields for tagging and file uploads
+    tagged_members = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='tagged_publications', blank=True)
+    tagged_externals = models.ManyToManyField('exterieurs', related_name='tagged_publications', blank=True)
+    attached_files = models.ManyToManyField('UserFile', related_name='publications', blank=True)
+    keywords = models.JSONField(default=list, blank=True)
     
     class Meta:
         ordering = ['-posted_at']
     
     def __str__(self):
         return self.title
+
+class ContactMessage(models.Model):
+    STATUS_CHOICES = [
+        ('new', 'New'),
+        ('read', 'Read'),
+        ('replied', 'Replied'),
+    ]
+    
+    name = models.CharField(max_length=255)
+    email = models.EmailField()
+    subject = models.CharField(max_length=255)
+    category = models.CharField(max_length=100)
+    message = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='new')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.name} - {self.subject}"
+
+class AccountRequest(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+    ]
+    
+    name = models.CharField(max_length=255)
+    email = models.EmailField()
+    password = models.CharField(max_length=255)
+    reason = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.name} - {self.email}"
+
+class InternalMessage(models.Model):
+    STATUS_CHOICES = [
+        ('unread', 'Unread'),
+        ('read', 'Read'),
+    ]
+    
+    sender = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sent_messages')
+    receiver = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='received_messages')
+    subject = models.CharField(max_length=255)
+    message = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='unread')
+    created_at = models.DateTimeField(auto_now_add=True)
+    reply_to = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='replies')
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.sender.username} -> {self.receiver.username}: {self.subject}"
+    
+    @property
+    def conversation_id(self):
+        """Generate a unique conversation ID for the two users"""
+        user_ids = sorted([self.sender.id, self.receiver.id])
+        return f"conv_{user_ids[0]}_{user_ids[1]}"
+
+class Event(models.Model):
+    EVENT_TYPES = [
+        ('conference', 'Conférence'),
+        ('seminar', 'Séminaire'),
+        ('workshop', 'Atelier'),
+        ('meeting', 'Réunion'),
+        ('presentation', 'Présentation'),
+        ('other', 'Autre'),
+    ]
+    
+    title = models.CharField(max_length=255)
+    description = models.TextField()
+    event_type = models.CharField(max_length=20, choices=EVENT_TYPES, default='other')
+    location = models.CharField(max_length=255)
+    start_date = models.DateTimeField()
+    end_date = models.DateTimeField()
+    max_participants = models.PositiveIntegerField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_events')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-start_date']
+    
+    def __str__(self):
+        return self.title
+    
+    @property
+    def registered_count(self):
+        return self.registrations.filter(status='confirmed').count()
+    
+    @property
+    def is_full(self):
+        if self.max_participants is None:
+            return False
+        return self.registered_count >= self.max_participants
+
+class EventRegistration(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'En attente'),
+        ('confirmed', 'Confirmé'),
+        ('cancelled', 'Annulé'),
+    ]
+    
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='registrations')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='event_registrations')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    registration_date = models.DateTimeField(auto_now_add=True)
+    notes = models.TextField(blank=True, null=True)
+    
+    class Meta:
+        ordering = ['-registration_date']
+        unique_together = ['event', 'user']
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.event.title}"

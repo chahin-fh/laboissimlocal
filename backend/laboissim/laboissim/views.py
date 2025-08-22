@@ -73,6 +73,15 @@ class TeamMembersView(APIView):
         serializer = ExtendedUserSerializer(users, many=True)
         return Response(serializer.data)
 
+# API view to get all users (for admin purposes)
+class UsersView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Get all users for admin purposes"""
+        users = User.objects.all().values('id', 'username', 'email', 'first_name', 'last_name', 'is_staff', 'is_superuser', 'is_active', 'date_joined')
+        return Response(list(users))
+
 # API view to update user profile
 class UserProfileView(APIView):
     permission_classes = [IsAuthenticated]

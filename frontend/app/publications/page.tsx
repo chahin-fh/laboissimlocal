@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
-import { Search, BookOpen, FileText, Users, Award, ExternalLink, Download, Eye } from "lucide-react"
+import { Search, BookOpen, FileText, Users, Award, ExternalLink, Download, Eye, Tag, UserPlus } from "lucide-react"
 import { getPublications } from "@/lib/publication-service"
 
 interface PublicationResponse {
@@ -19,6 +19,24 @@ interface PublicationResponse {
     id: string;
     name: string;
   };
+  tagged_members?: Array<{
+    id: string;
+    name: string;
+    username: string;
+  }>;
+  tagged_externals?: Array<{
+    id: string;
+    name: string;
+    email: string;
+  }>;
+  attached_files?: Array<{
+    id: string;
+    name: string;
+    file: string;
+    file_type: string;
+    size: number;
+  }>;
+  keywords?: string[];
 }
 
 export default function PublicationsPage() {
@@ -28,18 +46,18 @@ export default function PublicationsPage() {
   const [dynamicPublications, setDynamicPublications] = useState<PublicationResponse[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    const fetchPublications = async () => {
-      try {
-        const publications = await getPublications()
-        setDynamicPublications(publications)
-      } catch (error) {
-        console.error('Error fetching publications:', error)
-      } finally {
-        setLoading(false)
-      }
+  const fetchPublications = async () => {
+    try {
+      const publications = await getPublications()
+      setDynamicPublications(publications)
+    } catch (error) {
+      console.error('Error fetching publications:', error)
+    } finally {
+      setLoading(false)
     }
+  }
 
+  useEffect(() => {
     fetchPublications()
   }, [])
 
@@ -66,14 +84,16 @@ export default function PublicationsPage() {
     year: new Date(pub.posted_at).getFullYear(),
     type: "Article",
     abstract: pub.abstract,
-    keywords: ["Recherche", "Équipe"], // Default keywords since we don't have this field
+    keywords: pub.keywords || ["Recherche", "Équipe"], // Use actual keywords or default
     doi: `internal.${pub.id}`,
     url: "#",
     citations: 0, // Default since we don't track citations for internal publications
     pdf: "#",
+    // New fields
+    tagged_members: pub.tagged_members || [],
+    tagged_externals: pub.tagged_externals || [],
+    attached_files: pub.attached_files || [],
   }))
-
-
 
   // Combine dynamic and static publications
   const allPublications = [...transformedDynamicPublications]
@@ -83,7 +103,9 @@ export default function PublicationsPage() {
       pub.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       pub.authors.join(" ").toLowerCase().includes(searchQuery.toLowerCase()) ||
       pub.abstract.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      pub.keywords.join(" ").toLowerCase().includes(searchQuery.toLowerCase())
+      pub.keywords.join(" ").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      pub.tagged_members.map(m => m.name).join(" ").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      pub.tagged_externals.map(e => e.name).join(" ").toLowerCase().includes(searchQuery.toLowerCase())
 
     const matchesType = selectedType === "all" || pub.type === selectedType
     const matchesYear = selectedYear === "all" || pub.year.toString() === selectedYear
@@ -254,7 +276,76 @@ export default function PublicationsPage() {
                         <p className="text-gray-600 mb-3">
                           <strong>Journal:</strong> {publication.journal}
                         </p>
-                        <p className="text-gray-700 leading-relaxed">{publication.abstract}</p>
+                        <p className="text-gray-700 leading-relaxed mb-4">{publication.abstract}</p>
+
+                        {/* Keywords */}
+                        {publication.keywords && publication.keywords.length > 0 && (
+                          <div className="mb-4">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Tag className="h-4 w-4 text-gray-500" />
+                              <span className="text-sm font-medium text-gray-600">Mots-clés:</span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {publication.keywords.map((keyword, i) => (
+                                <Badge key={i} variant="outline" className="border-violet-200 text-violet-600">
+                                  {keyword}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Tagged Members */}
+                        {publication.tagged_members && publication.tagged_members.length > 0 && (
+                          <div className="mb-4">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Users className="h-4 w-4 text-gray-500" />
+                              <span className="text-sm font-medium text-gray-600">Membres tagués:</span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {publication.tagged_members.map((member) => (
+                                <Badge key={member.id} variant="outline" className="border-blue-200 text-blue-600">
+                                  {member.name}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Tagged Externals */}
+                        {publication.tagged_externals && publication.tagged_externals.length > 0 && (
+                          <div className="mb-4">
+                            <div className="flex items-center gap-2 mb-2">
+                              <UserPlus className="h-4 w-4 text-gray-500" />
+                              <span className="text-sm font-medium text-gray-600">Profils externes tagués:</span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {publication.tagged_externals.map((external) => (
+                                <Badge key={external.id} variant="outline" className="border-green-200 text-green-600">
+                                  {external.name}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Attached Files */}
+                        {publication.attached_files && publication.attached_files.length > 0 && (
+                          <div className="mb-4">
+                            <div className="flex items-center gap-2 mb-2">
+                              <FileText className="h-4 w-4 text-gray-500" />
+                              <span className="text-sm font-medium text-gray-600">Fichiers joints:</span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {publication.attached_files.map((file) => (
+                                <Badge key={file.id} variant="outline" className="border-orange-200 text-orange-600">
+                                  <FileText className="h-3 w-3 mr-1" />
+                                  {file.name}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <div className="flex flex-col items-end space-y-2 min-w-fit">
                         <div className="text-right">
@@ -265,13 +356,6 @@ export default function PublicationsPage() {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      {publication.keywords.map((keyword, i) => (
-                        <Badge key={i} variant="outline" className="border-violet-200 text-violet-600">
-                          {keyword}
-                        </Badge>
-                      ))}
-                    </div>
                     <div className="flex flex-col sm:flex-row gap-3">
                       <Button
                         variant="outline"

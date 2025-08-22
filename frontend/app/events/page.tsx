@@ -1,415 +1,504 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Calendar, Clock, MapPin, Users, ExternalLink } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import {
+  Calendar,
+  MapPin,
+  Clock,
+  Users,
+  UserCheck,
+  UserX,
+  Plus,
+  Edit,
+  Trash2,
+  CheckCircle,
+  XCircle,
+  Eye,
+} from "lucide-react"
 import { useAuth } from "@/components/auth-provider"
+import { useRouter } from "next/navigation"
+import { 
+  getEvents, 
+  registerForEvent, 
+  unregisterFromEvent,
+  getEventRegistrations,
+  type Event,
+  type EventRegistration
+} from "@/lib/event-service"
 
 export default function EventsPage() {
-  const [selectedCategory, setSelectedCategory] = useState("all")
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
+  const router = useRouter()
+  const [events, setEvents] = useState<Event[]>([])
+  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
+  const [showRegistrationForm, setShowRegistrationForm] = useState(false)
+  const [showEventDetails, setShowEventDetails] = useState(false)
+  const [registrationNotes, setRegistrationNotes] = useState("")
+  const [isRegistering, setIsRegistering] = useState(false)
+  const [eventRegistrations, setEventRegistrations] = useState<EventRegistration[]>([])
 
-  const fadeInUp = {
-    initial: { opacity: 0, y: 60 },
-    animate: { opacity: 1, y: 0 },
-    transition: { duration: 0.6 },
+  useEffect(() => {
+    // Always fetch events, even when not logged in
+    fetchEvents()
+  }, [])
+
+  const fetchEvents = async () => {
+    try {
+      const eventsData = await getEvents()
+      setEvents(eventsData)
+    } catch (error) {
+      console.error('Error fetching events:', error)
+    }
   }
 
-  const staggerContainer = {
-    animate: {
-      transition: {
-        staggerChildren: 0.1,
-      },
-    },
+  const fetchEventRegistrations = async (eventId: string) => {
+    try {
+      const registrations = await getEventRegistrations(eventId)
+      setEventRegistrations(registrations)
+    } catch (error) {
+      console.error('Error fetching event registrations:', error)
+    }
   }
 
-  const events = [
-    {
-      id: "event-1",
-      title: "Séminaire Intelligence Artificielle Éthique",
-      description: "Présentation des dernières avancées en IA éthique et discussion sur les implications sociétales",
-      date: "2024-12-15",
-      time: "14:00",
-      endTime: "17:00",
-      location: "Amphithéâtre A, Bâtiment Principal",
-      category: "Séminaire",
-      speaker: "Prof. Jean Martin",
-      attendees: 45,
-      maxAttendees: 80,
-      status: "À venir",
-      registrationUrl: "#",
-      image: "/placeholder.svg?height=200&width=400",
-      requiresAuth: true,
-    },
-    {
-      id: "event-2",
-      title: "Workshop Médecine Personnalisée",
-      description: "Atelier pratique sur les techniques de séquençage génomique et l'analyse de données multi-omiques",
-      date: "2024-12-18",
-      time: "09:00",
-      endTime: "16:00",
-      location: "Laboratoire de Biotechnologie",
-      category: "Workshop",
-      speaker: "Dr. Sophie Dubois",
-      attendees: 12,
-      maxAttendees: 20,
-      status: "À venir",
-      registrationUrl: "#",
-      image: "/placeholder.svg?height=200&width=400",
-      requiresAuth: true,
-    },
-    {
-      id: "event-3",
-      title: "Conférence Internationale sur les Énergies Renouvelables",
-      description:
-        "Conférence de trois jours sur les innovations en matière d'énergies renouvelables et de développement durable",
-      date: "2024-12-22",
-      time: "09:00",
-      endTime: "18:00",
-      location: "Centre de Conférences International",
-      category: "Conférence",
-      speaker: "Dr. Thomas Leroy",
-      attendees: 156,
-      maxAttendees: 200,
-      status: "À venir",
-      registrationUrl: "#",
-      image: "/placeholder.svg?height=200&width=400",
-      requiresAuth: false, // Public event
-    },
-    {
-      id: "event-4",
-      title: "Journée Portes Ouvertes du Laboratoire",
-      description: "Découvrez nos installations de recherche et rencontrez notre équipe de chercheurs",
-      date: "2025-01-10",
-      time: "10:00",
-      endTime: "16:00",
-      location: "Campus Universitaire",
-      category: "Portes Ouvertes",
-      speaker: "Équipe complète",
-      attendees: 0,
-      maxAttendees: 150,
-      status: "À venir",
-      registrationUrl: "#",
-      image: "/placeholder.svg?height=200&width=400",
-      requiresAuth: false, // Public event
-    },
-    {
-      id: "event-5",
-      title: "Symposium Nanotechnologie et Applications Médicales",
-      description: "Présentation des dernières recherches en nanotechnologie appliquée à la médecine",
-      date: "2025-01-15",
-      time: "13:30",
-      endTime: "17:30",
-      location: "Auditorium Principal",
-      category: "Symposium",
-      speaker: "Dr. Li Chen",
-      attendees: 23,
-      maxAttendees: 100,
-      status: "À venir",
-      registrationUrl: "#",
-      image: "/placeholder.svg?height=200&width=400",
-      requiresAuth: true,
-    },
-    {
-      id: "event-6",
-      title: "Colloque Informatique Quantique",
-      description: "Discussions sur les avancées récentes en informatique quantique et cryptographie post-quantique",
-      date: "2024-11-20",
-      time: "14:00",
-      endTime: "18:00",
-      location: "Salle de Conférence B",
-      category: "Colloque",
-      speaker: "Dr. Carlos Garcia",
-      attendees: 67,
-      maxAttendees: 75,
-      status: "Terminé",
-      registrationUrl: "#",
-      image: "/placeholder.svg?height=200&width=400",
-      requiresAuth: true,
-    },
-    {
-      id: "event-7",
-      title: "Réunion Mensuelle de l'Équipe",
-      description: "Réunion interne pour faire le point sur les projets en cours et planifier les prochaines étapes",
-      date: "2024-12-05",
-      time: "10:00",
-      endTime: "12:00",
-      location: "Salle de Réunion 301",
-      category: "Réunion",
-      speaker: "Prof. Jean Martin",
-      attendees: 25,
-      maxAttendees: 30,
-      status: "Terminé",
-      registrationUrl: "#",
-      image: "/placeholder.svg?height=200&width=400",
-      requiresAuth: true,
-    },
-    {
-      id: "event-8",
-      title: "Formation Éthique de la Recherche",
-      description: "Session de formation obligatoire sur l'éthique de la recherche et l'intégrité scientifique",
-      date: "2025-02-03",
-      time: "09:00",
-      endTime: "12:00",
-      location: "Salle de Formation",
-      category: "Formation",
-      speaker: "Comité d'Éthique",
-      attendees: 8,
-      maxAttendees: 40,
-      status: "À venir",
-      registrationUrl: "#",
-      image: "/placeholder.svg?height=200&width=400",
-      requiresAuth: true,
-    },
-  ]
-
-  const categories = Array.from(new Set(events.map((event) => event.category)))
-
-  const filteredEvents = events.filter((event) => {
-    return selectedCategory === "all" || event.category === selectedCategory
-  })
-
-  const upcomingEvents = filteredEvents.filter((event) => event.status === "À venir")
-  const pastEvents = filteredEvents.filter((event) => event.status === "Terminé")
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    return date.toLocaleDateString("fr-FR", {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    })
+  const handleEventClick = (event: Event) => {
+    setSelectedEvent(event)
+    setShowEventDetails(true)
+    // Fetch registrations for this event
+    fetchEventRegistrations(event.id)
   }
 
-  const canRegister = (event: any) => {
-    if (!event.requiresAuth) return true // Public events
-    return user && user.verified && user.status === "active" // Private events require verified account
+  const handleRegister = async () => {
+    if (!selectedEvent) return
+    
+    setIsRegistering(true)
+    try {
+      await registerForEvent(selectedEvent.id, registrationNotes)
+      setShowRegistrationForm(false)
+      setRegistrationNotes("")
+      setSelectedEvent(null)
+      fetchEvents() // Refresh events to update registration status
+      // Also refresh registrations if details modal is open
+      if (showEventDetails && selectedEvent) {
+        fetchEventRegistrations(selectedEvent.id)
+      }
+    } catch (error) {
+      console.error('Error registering for event:', error)
+      alert(error instanceof Error ? error.message : 'Erreur lors de l\'inscription')
+    } finally {
+      setIsRegistering(false)
+    }
+  }
+
+  const handleUnregister = async (eventId: string) => {
+    try {
+      await unregisterFromEvent(eventId)
+      fetchEvents() // Refresh events to update registration status
+      // Also refresh registrations if details modal is open
+      if (showEventDetails && selectedEvent) {
+        fetchEventRegistrations(selectedEvent.id)
+      }
+    } catch (error) {
+      console.error('Error unregistering from event:', error)
+      alert(error instanceof Error ? error.message : 'Erreur lors de la désinscription')
+    }
+  }
+
+  const handleRegisterClick = (event: Event) => {
+    if (!user) {
+      // Redirect to login if not authenticated
+      router.push('/login')
+      return
+    }
+    
+    setSelectedEvent(event)
+    setShowRegistrationForm(true)
+  }
+
+  const getEventTypeColor = (eventType: Event['event_type']) => {
+    switch (eventType) {
+      case 'conference': return 'bg-purple-100 text-purple-700'
+      case 'seminar': return 'bg-blue-100 text-blue-700'
+      case 'workshop': return 'bg-green-100 text-green-700'
+      case 'meeting': return 'bg-orange-100 text-orange-700'
+      case 'presentation': return 'bg-pink-100 text-pink-700'
+      default: return 'bg-gray-100 text-gray-700'
+    }
+  }
+
+  const getEventTypeLabel = (eventType: Event['event_type']) => {
+    switch (eventType) {
+      case 'conference': return 'Conférence'
+      case 'seminar': return 'Séminaire'
+      case 'workshop': return 'Atelier'
+      case 'meeting': return 'Réunion'
+      case 'presentation': return 'Présentation'
+      default: return 'Autre'
+    }
+  }
+
+  if (loading) {
+    return <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/20 pt-20">Loading...</div>
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-electric-50 to-violet-100 pt-20">
-      <div className="container mx-auto px-4 py-12">
-        {/* Hero Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 50 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-          className="text-center mb-16"
-        >
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
-            className="w-20 h-20 bg-gradient-primary rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg"
-          >
-            <Calendar className="h-10 w-10 text-white" />
-          </motion.div>
-
-          <h1 className="text-5xl md:text-6xl font-bold bg-gradient-to-r from-violet-600 via-electric-600 to-violet-600 bg-clip-text text-transparent mb-6 animate-rotate-gradient bg-[length:200%_auto]">
-            Événements
-          </h1>
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            Découvrez nos séminaires, workshops, conférences et autres événements scientifiques.
-          </p>
-        </motion.div>
-
-        {/* Category Filter */}
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/20 pt-20">
+      <div className="container mx-auto px-4 py-8">
+        {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
-          className="mb-12"
+          className="mb-8"
         >
-          <div className="flex flex-wrap justify-center gap-3">
-            <Button
-              variant={selectedCategory === "all" ? "default" : "outline"}
-              onClick={() => setSelectedCategory("all")}
-              className={
-                selectedCategory === "all"
-                  ? "bg-gradient-primary text-white"
-                  : "border-violet-600 text-violet-600 hover:bg-violet-600 hover:text-white"
-              }
-            >
-              Tous
-            </Button>
-            {categories.map((category) => (
-              <Button
-                key={category}
-                variant={selectedCategory === category ? "default" : "outline"}
-                onClick={() => setSelectedCategory(category)}
-                className={
-                  selectedCategory === category
-                    ? "bg-gradient-primary text-white"
-                    : "border-violet-600 text-violet-600 hover:bg-violet-600 hover:text-white"
-                }
-              >
-                {category}
-              </Button>
-            ))}
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-4xl font-bold text-gradient heading-modern mb-2">Événements</h1>
+              <p className="text-professional">Découvrez et participez aux événements de notre équipe</p>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Badge className="gradient-primary text-white px-4 py-2">
+                <Calendar className="h-4 w-4 mr-2" />
+                {events.length} événements
+              </Badge>
+            </div>
           </div>
         </motion.div>
 
-        {/* Upcoming Events */}
+        {/* Events Grid */}
         <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-          className="mb-16"
+          variants={{
+            animate: {
+              transition: {
+                staggerChildren: 0.1,
+              },
+            },
+          }}
+          initial="initial"
+          animate="animate"
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
         >
-          <h2 className="text-3xl font-bold text-gray-800 mb-8 text-center">Événements à Venir</h2>
-          <motion.div
-            variants={staggerContainer}
-            initial="initial"
-            animate="animate"
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"
-          >
-            {upcomingEvents.length > 0 ? (
-              upcomingEvents.map((event) => (
-                <motion.div key={event.id} variants={fadeInUp}>
-                  <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg hover:shadow-xl transition-all duration-300 h-full flex flex-col">
-                    <div className="relative overflow-hidden">
-                      <div className="w-full h-48 bg-gradient-to-br from-violet-400 to-electric-400 flex items-center justify-center">
-                        <Calendar className="h-16 w-16 text-white/80" />
-                      </div>
-                      <div className="absolute top-4 left-4">
-                        <Badge className="bg-gradient-primary text-white">{event.category}</Badge>
-                      </div>
-                      <div className="absolute top-4 right-4">
-                        <Badge className="bg-green-600 text-white">{event.status}</Badge>
-                      </div>
-                      {event.requiresAuth && (
-                        <div className="absolute bottom-4 left-4">
-                          <Badge className="bg-amber-600 text-white">Membres uniquement</Badge>
-                        </div>
-                      )}
+          {events.map((event, index) => (
+            <motion.div
+              key={event.id}
+              initial={{ opacity: 0, y: 60 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: index * 0.1 }}
+              className="group"
+            >
+              <Card 
+                className="card-professional border-0 overflow-hidden h-full hover-lift cursor-pointer"
+                onClick={() => handleEventClick(event)}
+              >
+                <CardHeader className="pb-4">
+                  <div className="flex items-start justify-between mb-3">
+                    <Badge className={getEventTypeColor(event.event_type)}>
+                      {getEventTypeLabel(event.event_type)}
+                    </Badge>
+                    {event.user_registration && (
+                      <Badge className="bg-green-100 text-green-700">
+                        <UserCheck className="h-3 w-3 mr-1" />
+                        Inscrit
+                      </Badge>
+                    )}
+                  </div>
+                  <CardTitle className="text-xl group-hover:text-indigo-600 transition-colors heading-modern">
+                    {event.title}
+                  </CardTitle>
+                  <p className="text-professional text-sm line-clamp-3">
+                    {event.description}
+                  </p>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="space-y-3 mb-4">
+                    <div className="flex items-center text-sm text-slate-600">
+                      <MapPin className="h-4 w-4 mr-2" />
+                      {event.location}
                     </div>
-                    <CardHeader className="flex-grow">
-                      <CardTitle className="text-xl text-gray-800 mb-2">{event.title}</CardTitle>
-                      <p className="text-gray-600 text-sm mb-4">{event.description}</p>
+                    <div className="flex items-center text-sm text-slate-600">
+                      <Calendar className="h-4 w-4 mr-2" />
+                      {new Date(event.start_date).toLocaleDateString('fr-FR', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                      })}
+                    </div>
+                    <div className="flex items-center text-sm text-slate-600">
+                      <Clock className="h-4 w-4 mr-2" />
+                      {new Date(event.start_date).toLocaleTimeString('fr-FR', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })} - {new Date(event.end_date).toLocaleTimeString('fr-FR', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </div>
+                    <div className="flex items-center text-sm text-slate-600">
+                      <Users className="h-4 w-4 mr-2" />
+                      {event.registered_count} inscrits
+                      {event.max_participants && ` / ${event.max_participants} max`}
+                    </div>
+                  </div>
 
-                      <div className="space-y-2 text-sm text-gray-600">
-                        <div className="flex items-center">
-                          <Calendar className="h-4 w-4 mr-2 text-violet-600" />
-                          {formatDate(event.date)}
-                        </div>
-                        <div className="flex items-center">
-                          <Clock className="h-4 w-4 mr-2 text-violet-600" />
-                          {event.time} - {event.endTime}
-                        </div>
-                        <div className="flex items-center">
-                          <MapPin className="h-4 w-4 mr-2 text-violet-600" />
-                          {event.location}
-                        </div>
-                        <div className="flex items-center">
-                          <Users className="h-4 w-4 mr-2 text-violet-600" />
-                          {event.attendees}/{event.maxAttendees} participants
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex flex-col gap-3">
-                        <div className="text-sm text-gray-600">
-                          <strong>Intervenant:</strong> {event.speaker}
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div
-                            className="bg-gradient-primary h-2 rounded-full transition-all duration-300"
-                            style={{ width: `${(event.attendees / event.maxAttendees) * 100}%` }}
-                          />
-                        </div>
-                        {canRegister(event) ? (
-                          <Button className="w-full bg-gradient-primary hover:opacity-90 text-white">S'inscrire</Button>
-                        ) : event.requiresAuth ? (
-                          <div className="text-center">
-                            <p className="text-sm text-gray-500 mb-2">Connexion requise</p>
-                            <Button variant="outline" className="w-full" disabled>
-                              Inscription fermée
-                            </Button>
-                          </div>
-                        ) : (
-                          <Button className="w-full bg-gradient-primary hover:opacity-90 text-white">S'inscrire</Button>
+                  <div className="flex space-x-2">
+                    {event.user_registration ? (
+                      <Button
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleUnregister(event.id)
+                        }}
+                        className="border-red-300 text-red-600 hover:bg-red-50 flex-1"
+                      >
+                        <UserX className="h-4 w-4 mr-2" />
+                        Se désinscrire
+                      </Button>
+                    ) : (
+                      <Button 
+                        className="btn-modern text-white flex-1"
+                        disabled={event.is_full}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleRegisterClick(event)
+                        }}
+                      >
+                        <UserCheck className="h-4 w-4 mr-2" />
+                        {event.is_full ? 'Complet' : 'S\'inscrire'}
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          ))}
+        </motion.div>
+
+        {events.length === 0 && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center py-12"
+          >
+            <Calendar className="h-16 w-16 text-slate-400 mx-auto mb-4" />
+            <h3 className="text-xl font-medium text-slate-600 mb-2">Aucun événement pour le moment</h3>
+            <p className="text-slate-500">Les nouveaux événements apparaîtront ici.</p>
+          </motion.div>
+        )}
+      </div>
+
+      {/* Event Details Modal */}
+      {showEventDetails && selectedEvent && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowEventDetails(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-6">
+              <div className="flex-1">
+                <div className="flex items-center space-x-2 mb-3">
+                  <Badge className={getEventTypeColor(selectedEvent.event_type)}>
+                    {getEventTypeLabel(selectedEvent.event_type)}
+                  </Badge>
+                  {selectedEvent.user_registration && (
+                    <Badge className="bg-green-100 text-green-700">
+                      <UserCheck className="h-3 w-3 mr-1" />
+                      Inscrit
+                    </Badge>
+                  )}
+                  {!selectedEvent.is_active && (
+                    <Badge className="bg-red-100 text-red-700">Inactif</Badge>
+                  )}
+                </div>
+                <h2 className="text-2xl font-bold text-slate-800 mb-2">{selectedEvent.title}</h2>
+                <p className="text-slate-600 mb-4">{selectedEvent.description}</p>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                  <div className="space-y-3">
+                    <div className="flex items-center text-sm text-slate-600">
+                      <MapPin className="h-4 w-4 mr-2" />
+                      {selectedEvent.location}
+                    </div>
+                    <div className="flex items-center text-sm text-slate-600">
+                      <Calendar className="h-4 w-4 mr-2" />
+                      {new Date(selectedEvent.start_date).toLocaleDateString('fr-FR', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                      })}
+                    </div>
+                    <div className="flex items-center text-sm text-slate-600">
+                      <Clock className="h-4 w-4 mr-2" />
+                      {new Date(selectedEvent.start_date).toLocaleTimeString('fr-FR', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })} - {new Date(selectedEvent.end_date).toLocaleTimeString('fr-FR', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </div>
+                    <div className="flex items-center text-sm text-slate-600">
+                      <Users className="h-4 w-4 mr-2" />
+                      {selectedEvent.registered_count} inscrits
+                      {selectedEvent.max_participants && ` / ${selectedEvent.max_participants} max`}
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <div className="flex items-center text-sm text-slate-600">
+                      <span className="font-medium">Créé par:</span>
+                      <span className="ml-2">{selectedEvent.created_by_name}</span>
+                    </div>
+                    <div className="flex items-center text-sm text-slate-600">
+                      <span className="font-medium">Créé le:</span>
+                      <span className="ml-2">{new Date(selectedEvent.created_at).toLocaleDateString('fr-FR')}</span>
+                    </div>
+                    <div className="flex items-center text-sm text-slate-600">
+                      <span className="font-medium">Dernière mise à jour:</span>
+                      <span className="ml-2">{new Date(selectedEvent.updated_at).toLocaleDateString('fr-FR')}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Registration Action */}
+                <div className="mb-6">
+                  {selectedEvent.user_registration ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => handleUnregister(selectedEvent.id)}
+                      className="border-red-300 text-red-600 hover:bg-red-50"
+                    >
+                      <UserX className="h-4 w-4 mr-2" />
+                      Se désinscrire
+                    </Button>
+                  ) : (
+                    <Button 
+                      className="btn-modern text-white"
+                      disabled={selectedEvent.is_full}
+                      onClick={() => {
+                        setShowEventDetails(false)
+                        handleRegisterClick(selectedEvent)
+                      }}
+                    >
+                      <UserCheck className="h-4 w-4 mr-2" />
+                      {selectedEvent.is_full ? 'Complet' : 'S\'inscrire'}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Registered Members List */}
+            <div className="border-t pt-6">
+              <h3 className="text-lg font-semibold mb-4 flex items-center">
+                <Users className="h-5 w-5 mr-2" />
+                Membres inscrits ({eventRegistrations.length})
+              </h3>
+              <div className="space-y-3 max-h-60 overflow-y-auto">
+                {eventRegistrations.length > 0 ? (
+                  eventRegistrations.map((registration) => (
+                    <div key={registration.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                      <div>
+                        <h4 className="font-medium text-slate-800">{registration.user_full_name}</h4>
+                        <p className="text-sm text-slate-600">{registration.user_email}</p>
+                        <p className="text-sm text-slate-500">
+                          Inscrit le {new Date(registration.registration_date).toLocaleDateString('fr-FR')}
+                        </p>
+                        {registration.notes && (
+                          <p className="text-sm text-slate-700 mt-1">{registration.notes}</p>
                         )}
                       </div>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              ))
-            ) : (
-              <div className="col-span-full text-center py-12">
-                <p className="text-gray-500 text-lg">Aucun événement à venir dans cette catégorie.</p>
+                      <Badge
+                        className={
+                          registration.status === "confirmed" ? "bg-green-100 text-green-700" :
+                          registration.status === "pending" ? "bg-amber-100 text-amber-700" :
+                          "bg-red-100 text-red-700"
+                        }
+                      >
+                        {registration.status === "confirmed" ? "Confirmé" :
+                         registration.status === "pending" ? "En attente" : "Annulé"}
+                      </Badge>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-center text-slate-500 py-8">Aucun inscrit pour le moment</p>
+                )}
               </div>
-            )}
+            </div>
+
+            <div className="mt-6">
+              <Button variant="outline" onClick={() => setShowEventDetails(false)}>
+                Fermer
+              </Button>
+            </div>
           </motion.div>
         </motion.div>
+      )}
 
-        {/* Past Events */}
+      {/* Registration Form Modal */}
+      {showRegistrationForm && selectedEvent && (
         <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.4 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowRegistrationForm(false)}
         >
-          <h2 className="text-3xl font-bold text-gray-800 mb-8 text-center">Événements Passés</h2>
           <motion.div
-            variants={staggerContainer}
-            initial="initial"
-            animate="animate"
-            className="grid grid-cols-1 md:grid-cols-2 gap-6"
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-xl p-6 w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
           >
-            {pastEvents.length > 0 ? (
-              pastEvents.map((event) => (
-                <motion.div key={event.id} variants={fadeInUp}>
-                  <Card className="bg-white/60 backdrop-blur-sm border-0 shadow-lg hover:shadow-xl transition-all duration-300">
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div className="flex-grow">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Badge variant="outline" className="border-gray-400 text-gray-600">
-                              {event.category}
-                            </Badge>
-                            <Badge className="bg-gray-600 text-white">{event.status}</Badge>
-                            {event.requiresAuth && (
-                              <Badge variant="outline" className="border-amber-400 text-amber-600">
-                                Privé
-                              </Badge>
-                            )}
-                          </div>
-                          <CardTitle className="text-lg text-gray-800 mb-2">{event.title}</CardTitle>
-                          <p className="text-gray-600 text-sm mb-3">{event.description}</p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
-                        <div className="flex items-center">
-                          <Calendar className="h-4 w-4 mr-2 text-gray-500" />
-                          {formatDate(event.date)}
-                        </div>
-                        <div className="flex items-center">
-                          <Users className="h-4 w-4 mr-2 text-gray-500" />
-                          {event.attendees} participants
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <Button variant="ghost" className="text-violet-600 hover:text-violet-700 p-0">
-                        <ExternalLink className="h-4 w-4 mr-2" />
-                        Voir le résumé
-                      </Button>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              ))
-            ) : (
-              <div className="col-span-full text-center py-12">
-                <p className="text-gray-500 text-lg">Aucun événement passé dans cette catégorie.</p>
+            <h3 className="text-xl font-bold mb-4">
+              S'inscrire à "{selectedEvent.title}"
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="notes">Notes (optionnel)</Label>
+                <Textarea
+                  id="notes"
+                  value={registrationNotes}
+                  onChange={(e) => setRegistrationNotes(e.target.value)}
+                  placeholder="Ajoutez des notes ou commentaires..."
+                  rows={3}
+                />
               </div>
-            )}
+              <div className="flex space-x-2">
+                <Button 
+                  onClick={handleRegister}
+                  className="btn-modern text-white flex-1"
+                  disabled={isRegistering}
+                >
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  {isRegistering ? 'Inscription...' : 'Confirmer l\'inscription'}
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setShowRegistrationForm(false)}
+                  disabled={isRegistering}
+                >
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Annuler
+                </Button>
+              </div>
+            </div>
           </motion.div>
         </motion.div>
-      </div>
+      )}
     </div>
   )
 }

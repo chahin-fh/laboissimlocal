@@ -29,9 +29,22 @@ import {
   UserCheck,
   Mail,
   Send,
+  Calendar,
+  Plus,
 } from "lucide-react"
 import { useAuth } from "@/components/auth-provider"
 import { useContentManager, type SiteContent } from "@/lib/content-manager"
+import { 
+  getEvents, 
+  createEvent, 
+  updateEvent, 
+  deleteEvent, 
+  getEventRegistrations,
+  updateRegistrationStatus,
+  type Event,
+  type EventRegistration,
+  type CreateEventData
+} from "@/lib/event-service"
 
 export default function AdminPage() {
   const {
@@ -54,10 +67,26 @@ export default function AdminPage() {
     getUnreadCount,
   } = useAuth()
   const { content, updateContent } = useContentManager()
+  
+  // All useState hooks must be at the top level
   const [editingContent, setEditingContent] = useState<SiteContent>(content)
   const [activeTab, setActiveTab] = useState("dashboard")
-  const [selectedUser, setSelectedUser] = useState<string | null>(null)
-  const [messageForm, setMessageForm] = useState({ subject: "", message: "" })
+  const [events, setEvents] = useState<Event[]>([])
+  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
+  const [eventForm, setEventForm] = useState<CreateEventData>({
+    title: "",
+    description: "",
+    event_type: "other",
+    location: "",
+    start_date: "",
+    end_date: "",
+    max_participants: undefined,
+  })
+  const [showEventForm, setShowEventForm] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [eventRegistrations, setEventRegistrations] = useState<EventRegistration[]>([])
+  const [unreadInternalMessages, setUnreadInternalMessages] = useState(0)
+  
   const router = useRouter()
 
   useEffect(() => {
@@ -65,6 +94,16 @@ export default function AdminPage() {
       router.push("/login")
     }
   }, [user, loading, router])
+
+  useEffect(() => {
+    if (user) {
+      getUnreadCount()
+        .then(count => setUnreadInternalMessages(count))
+        .catch(error => console.error('Error fetching unread count:', error))
+      
+      fetchEvents()
+    }
+  }, [user])
 
   if (loading) {
     return null // or a spinner
@@ -87,12 +126,153 @@ export default function AdminPage() {
     }))
   }
 
-  const handleSendMessage = () => {
-    if (selectedUser && messageForm.subject && messageForm.message) {
-      sendInternalMessage(selectedUser, messageForm.subject, messageForm.message)
-      setMessageForm({ subject: "", message: "" })
-      setSelectedUser(null)
+  // Event management functions
+  const fetchEvents = async () => {
+    try {
+      const eventsData = await getEvents()
+      setEvents(eventsData)
+    } catch (error) {
+      console.error('Error fetching events:', error)
+      // Show user-friendly error message
+      alert('Erreur lors du chargement des événements. Veuillez réessayer.')
     }
+  }
+
+  const handleCreateEvent = async () => {
+    // Validate form data
+    if (!eventForm.title || !eventForm.description || !eventForm.location || !eventForm.start_date || !eventForm.end_date) {
+      alert('Veuillez remplir tous les champs obligatoires')
+      return
+    }
+    
+    // Validate dates
+    const startDate = new Date(eventForm.start_date)
+    const endDate = new Date(eventForm.end_date)
+    if (endDate <= startDate) {
+      alert('La date de fin doit être après la date de début')
+      return
+    }
+    
+    // Validate max participants
+    if (eventForm.max_participants !== undefined && eventForm.max_participants <= 0) {
+      alert('Le nombre maximum de participants doit être supérieur à 0')
+      return
+    }
+    
+    try {
+      console.log('Creating event with data:', eventForm)
+      await createEvent(eventForm)
+      setEventForm({
+        title: "",
+        description: "",
+        event_type: "other",
+        location: "",
+        start_date: "",
+        end_date: "",
+        max_participants: undefined,
+      })
+      setShowEventForm(false)
+      fetchEvents()
+      alert('Événement créé avec succès!')
+    } catch (error) {
+      console.error('Error creating event:', error)
+      alert(error instanceof Error ? error.message : 'Erreur lors de la création de l\'événement')
+    }
+  }
+
+  const handleUpdateEvent = async () => {
+    if (!selectedEvent) return
+    
+    // Validate form data
+    if (!eventForm.title || !eventForm.description || !eventForm.location || !eventForm.start_date || !eventForm.end_date) {
+      alert('Veuillez remplir tous les champs obligatoires')
+      return
+    }
+    
+    // Validate dates
+    const startDate = new Date(eventForm.start_date)
+    const endDate = new Date(eventForm.end_date)
+    if (endDate <= startDate) {
+      alert('La date de fin doit être après la date de début')
+      return
+    }
+    
+    // Validate max participants
+    if (eventForm.max_participants !== undefined && eventForm.max_participants <= 0) {
+      alert('Le nombre maximum de participants doit être supérieur à 0')
+      return
+    }
+    
+    try {
+      await updateEvent(selectedEvent.id, eventForm)
+      setShowEventForm(false)
+      setSelectedEvent(null)
+      setIsEditing(false)
+      fetchEvents()
+      alert('Événement mis à jour avec succès!')
+    } catch (error) {
+      console.error('Error updating event:', error)
+      alert(error instanceof Error ? error.message : 'Erreur lors de la mise à jour de l\'événement')
+    }
+  }
+
+  const handleDeleteEvent = async (eventId: string) => {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer cet événement ?')) {
+      return
+    }
+    
+    try {
+      await deleteEvent(eventId)
+      fetchEvents()
+      alert('Événement supprimé avec succès!')
+    } catch (error) {
+      console.error('Error deleting event:', error)
+      alert('Erreur lors de la suppression de l\'événement')
+    }
+  }
+
+  const handleEditEvent = (event: Event) => {
+    setSelectedEvent(event)
+    setEventForm({
+      title: event.title,
+      description: event.description,
+      event_type: event.event_type,
+      location: event.location,
+      start_date: formatDateForDisplay(event.start_date),
+      end_date: formatDateForDisplay(event.end_date),
+      max_participants: event.max_participants,
+    })
+    setIsEditing(true)
+    setShowEventForm(true)
+  }
+
+  const fetchEventRegistrations = async (eventId: string) => {
+    try {
+      const registrations = await getEventRegistrations(eventId)
+      setEventRegistrations(registrations)
+    } catch (error) {
+      console.error('Error fetching event registrations:', error)
+      alert('Erreur lors du chargement des inscriptions')
+    }
+  }
+
+  const handleUpdateRegistrationStatus = async (registrationId: string, status: EventRegistration['status']) => {
+    if (!selectedEvent) return
+    try {
+      await updateRegistrationStatus(selectedEvent.id, registrationId, status)
+      fetchEventRegistrations(selectedEvent.id)
+      alert('Statut mis à jour avec succès!')
+    } catch (error) {
+      console.error('Error updating registration status:', error)
+      alert('Erreur lors de la mise à jour du statut')
+    }
+  }
+
+  // Helper function to format dates for display
+  const formatDateForDisplay = (dateString: string): string => {
+    if (!dateString) return ''
+    const date = new Date(dateString)
+    return date.toISOString().slice(0, 16) // Format for datetime-local input
   }
 
   const stats = {
@@ -102,7 +282,7 @@ export default function AdminPage() {
     newMessages: messages.filter((m) => m.status === "new").length,
     pendingRequests: accountRequests.filter((r) => r.status === "pending").length,
     connectedNow: connectedUsers.length,
-    unreadInternalMessages: getUnreadCount(),
+    unreadInternalMessages,
   }
 
   const fadeInUp = {
@@ -150,9 +330,9 @@ export default function AdminPage() {
               <Users className="h-4 w-4" />
               <span className="hidden sm:inline">Utilisateurs</span>
             </TabsTrigger>
-            <TabsTrigger value="messages" className="flex items-center space-x-2">
-              <MessageSquare className="h-4 w-4" />
-              <span className="hidden sm:inline">Messages</span>
+            <TabsTrigger value="events" className="flex items-center space-x-2">
+              <Calendar className="h-4 w-4" />
+              <span className="hidden sm:inline">Événements</span>
             </TabsTrigger>
             <TabsTrigger value="requests" className="flex items-center space-x-2">
               <UserPlus className="h-4 w-4" />
@@ -341,14 +521,6 @@ export default function AdminPage() {
                         </div>
                       </div>
                       <div className="flex items-center space-x-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setSelectedUser(userItem.id)}
-                          className="border-blue-300 text-blue-600 hover:bg-blue-50"
-                        >
-                          <Mail className="h-4 w-4" />
-                        </Button>
                         <Select
                           value={userItem.role}
                           onValueChange={(role: "member" | "admin") => updateUserRole(userItem.id, role)}
@@ -395,49 +567,198 @@ export default function AdminPage() {
               </CardContent>
             </Card>
 
-            {/* Message Modal */}
-            {selectedUser && (
+
+          </TabsContent>
+
+          {/* Events Tab */}
+          <TabsContent value="events">
+            <Card className="card-professional border-0 shadow-lg">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center">
+                    <Calendar className="h-5 w-5 mr-2 text-green-600" />
+                    Gestion des Événements
+                  </CardTitle>
+                  <Button onClick={() => setShowEventForm(true)} className="btn-modern text-white">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Nouvel Événement
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {events.map((event) => (
+                    <motion.div
+                      key={event.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="p-4 bg-slate-50 rounded-lg border"
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <h4 className="font-medium text-slate-800">{event.title}</h4>
+                            <Badge className="bg-green-100 text-green-700">{event.event_type}</Badge>
+                            {!event.is_active && <Badge className="bg-red-100 text-red-700">Inactif</Badge>}
+                          </div>
+                          <p className="text-sm text-slate-600 mb-2">{event.description}</p>
+                          <div className="flex items-center space-x-4 text-sm text-slate-500">
+                            <span>📍 {event.location}</span>
+                            <span>📅 {new Date(event.start_date).toLocaleDateString()}</span>
+                            <span>👥 {event.registered_count} inscrits</span>
+                            {event.max_participants && (
+                              <span>/ {event.max_participants} max</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSelectedEvent(event)
+                              fetchEventRegistrations(event.id)
+                            }}
+                            className="border-blue-300 text-blue-600 hover:bg-blue-50"
+                          >
+                            <Users className="h-4 w-4 mr-1" />
+                            Inscrits
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleEditEvent(event)}
+                            className="border-amber-300 text-amber-600 hover:bg-amber-50"
+                          >
+                            <Edit className="h-4 w-4 mr-1" />
+                            Modifier
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleDeleteEvent(event.id)}
+                            className="border-red-300 text-red-600 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-4 w-4 mr-1" />
+                            Supprimer
+                          </Button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Event Form Modal */}
+            {showEventForm && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-                onClick={() => setSelectedUser(null)}
+                onClick={() => setShowEventForm(false)}
               >
                 <motion.div
                   initial={{ scale: 0.8, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  className="bg-white rounded-xl p-6 w-full max-w-md"
+                  className="bg-white rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <h3 className="text-xl font-bold mb-4">
-                    Envoyer un message à {users.find((u) => u.id === selectedUser)?.name}
+                    {isEditing ? 'Modifier l\'événement' : 'Nouvel événement'}
                   </h3>
                   <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="subject">Sujet</Label>
-                      <Input
-                        id="subject"
-                        value={messageForm.subject}
-                        onChange={(e) => setMessageForm((prev) => ({ ...prev, subject: e.target.value }))}
-                        placeholder="Sujet du message"
-                      />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <Label htmlFor="title">Titre</Label>
+                        <Input
+                          id="title"
+                          value={eventForm.title}
+                          onChange={(e) => setEventForm(prev => ({ ...prev, title: e.target.value }))}
+                          placeholder="Titre de l'événement"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="event_type">Type d'événement</Label>
+                        <Select value={eventForm.event_type} onValueChange={(value) => setEventForm(prev => ({ ...prev, event_type: value as any }))}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="conference">Conférence</SelectItem>
+                            <SelectItem value="seminar">Séminaire</SelectItem>
+                            <SelectItem value="workshop">Atelier</SelectItem>
+                            <SelectItem value="meeting">Réunion</SelectItem>
+                            <SelectItem value="presentation">Présentation</SelectItem>
+                            <SelectItem value="other">Autre</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
                     <div>
-                      <Label htmlFor="message">Message</Label>
+                      <Label htmlFor="description">Description</Label>
                       <Textarea
-                        id="message"
-                        value={messageForm.message}
-                        onChange={(e) => setMessageForm((prev) => ({ ...prev, message: e.target.value }))}
-                        placeholder="Votre message..."
-                        rows={4}
+                        id="description"
+                        value={eventForm.description}
+                        onChange={(e) => setEventForm(prev => ({ ...prev, description: e.target.value }))}
+                        placeholder="Description de l'événement"
+                        rows={3}
                       />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <Label htmlFor="location">Lieu</Label>
+                        <Input
+                          id="location"
+                          value={eventForm.location}
+                          onChange={(e) => setEventForm(prev => ({ ...prev, location: e.target.value }))}
+                          placeholder="Lieu de l'événement"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="max_participants">Nombre max de participants</Label>
+                        <Input
+                          id="max_participants"
+                          type="number"
+                          value={eventForm.max_participants || ''}
+                          onChange={(e) => setEventForm(prev => ({ ...prev, max_participants: e.target.value ? parseInt(e.target.value) : undefined }))}
+                          placeholder="Illimité si vide"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <Label htmlFor="start_date">Date et heure de début</Label>
+                        <Input
+                          id="start_date"
+                          type="datetime-local"
+                          value={eventForm.start_date}
+                          onChange={(e) => setEventForm(prev => ({ ...prev, start_date: e.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="end_date">Date et heure de fin</Label>
+                        <Input
+                          id="end_date"
+                          type="datetime-local"
+                          value={eventForm.end_date}
+                          onChange={(e) => setEventForm(prev => ({ ...prev, end_date: e.target.value }))}
+                        />
+                      </div>
                     </div>
                     <div className="flex space-x-2">
-                      <Button onClick={handleSendMessage} className="btn-modern text-white flex-1">
-                        <Send className="h-4 w-4 mr-2" />
-                        Envoyer
+                      <Button 
+                        onClick={isEditing ? handleUpdateEvent : handleCreateEvent} 
+                        className="btn-modern text-white flex-1"
+                        disabled={!eventForm.title || !eventForm.description || !eventForm.location || !eventForm.start_date || !eventForm.end_date}
+                      >
+                        {isEditing ? 'Mettre à jour' : 'Créer'}
                       </Button>
-                      <Button variant="outline" onClick={() => setSelectedUser(null)}>
+                      <Button variant="outline" onClick={() => {
+                        setShowEventForm(false)
+                        setIsEditing(false)
+                        setSelectedEvent(null)
+                      }}>
                         Annuler
                       </Button>
                     </div>
@@ -445,67 +766,78 @@ export default function AdminPage() {
                 </motion.div>
               </motion.div>
             )}
-          </TabsContent>
 
-          {/* Messages Tab */}
-          <TabsContent value="messages">
-            <Card className="card-professional border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <MessageSquare className="h-5 w-5 mr-2 text-indigo-600" />
-                  Messages reçus
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {messages.map((message) => (
-                    <div key={message.id} className="p-4 bg-slate-50 rounded-lg">
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h4 className="font-medium text-slate-800">{message.name}</h4>
-                          <p className="text-sm text-slate-600">{message.email}</p>
-                          <p className="text-sm text-slate-500">{new Date(message.createdAt).toLocaleString()}</p>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Badge
-                            className={
-                              message.status === "new" ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-700"
-                            }
-                          >
-                            {message.status === "new" ? "Nouveau" : message.status === "read" ? "Lu" : "Répondu"}
-                          </Badge>
-                          <Badge variant="outline">{message.category}</Badge>
+            {/* Event Registrations Modal */}
+            {selectedEvent && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+                onClick={() => setSelectedEvent(null)}
+              >
+                <motion.div
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="bg-white rounded-xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <h3 className="text-xl font-bold mb-4">
+                    Inscrits à "{selectedEvent.title}"
+                  </h3>
+                  <div className="space-y-4">
+                    {eventRegistrations.map((registration) => (
+                      <div key={registration.id} className="p-4 bg-slate-50 rounded-lg border">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h4 className="font-medium text-slate-800">{registration.user_full_name}</h4>
+                            <p className="text-sm text-slate-600">{registration.user_email}</p>
+                            <p className="text-sm text-slate-500">
+                              Inscrit le {new Date(registration.registration_date).toLocaleDateString()}
+                            </p>
+                            {registration.notes && (
+                              <p className="text-sm text-slate-700 mt-2">{registration.notes}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Badge
+                              className={
+                                registration.status === "confirmed" ? "bg-green-100 text-green-700" :
+                                registration.status === "pending" ? "bg-amber-100 text-amber-700" :
+                                "bg-red-100 text-red-700"
+                              }
+                            >
+                              {registration.status === "confirmed" ? "Confirmé" :
+                               registration.status === "pending" ? "En attente" : "Annulé"}
+                            </Badge>
+                            <Select
+                              value={registration.status}
+                              onValueChange={(status) => handleUpdateRegistrationStatus(registration.id, status as any)}
+                            >
+                              <SelectTrigger className="w-32">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="pending">En attente</SelectItem>
+                                <SelectItem value="confirmed">Confirmé</SelectItem>
+                                <SelectItem value="cancelled">Annulé</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </div>
                       </div>
-                      <h5 className="font-medium text-slate-800 mb-2">{message.subject}</h5>
-                      <p className="text-slate-700 mb-4">{message.message}</p>
-                      <div className="flex items-center space-x-2">
-                        {message.status === "new" && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => updateMessageStatus(message.id, "read")}
-                            className="border-blue-300 text-blue-600 hover:bg-blue-50"
-                          >
-                            <Eye className="h-4 w-4 mr-1" />
-                            Marquer comme lu
-                          </Button>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => updateMessageStatus(message.id, "replied")}
-                          className="border-green-300 text-green-600 hover:bg-green-50"
-                        >
-                          <CheckCircle className="h-4 w-4 mr-1" />
-                          Marquer comme répondu
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+                    ))}
+                    {eventRegistrations.length === 0 && (
+                      <p className="text-center text-slate-500 py-8">Aucun inscrit pour le moment</p>
+                    )}
+                  </div>
+                  <div className="mt-6">
+                    <Button variant="outline" onClick={() => setSelectedEvent(null)}>
+                      Fermer
+                    </Button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
           </TabsContent>
 
           {/* Account Requests Tab */}
@@ -548,7 +880,13 @@ export default function AdminPage() {
                         <div className="flex items-center space-x-2">
                           <Button
                             size="sm"
-                            onClick={() => updateAccountRequest(request.id, "approved")}
+                            onClick={async () => {
+                              try {
+                                await updateAccountRequest(request.id, "approved")
+                              } catch (error) {
+                                console.error('Error updating account request:', error)
+                              }
+                            }}
                             className="bg-green-600 hover:bg-green-700 text-white"
                           >
                             <CheckCircle className="h-4 w-4 mr-1" />
@@ -557,7 +895,13 @@ export default function AdminPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => updateAccountRequest(request.id, "rejected")}
+                            onClick={async () => {
+                              try {
+                                await updateAccountRequest(request.id, "rejected")
+                              } catch (error) {
+                                console.error('Error updating account request:', error)
+                              }
+                            }}
                             className="border-red-300 text-red-600 hover:bg-red-50"
                           >
                             <XCircle className="h-4 w-4 mr-1" />

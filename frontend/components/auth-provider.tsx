@@ -61,26 +61,31 @@ interface AuthContextType {
   logout: () => void
   loading: boolean
   // Admin functions
-  createUser: (userData: Omit<User, "id" | "createdAt">) => void
+  createUser: (userData: Omit<User, "id" | "date_joined">) => void
   banUser: (userId: string) => void
   unbanUser: (userId: string) => void
   deleteUser: (userId: string) => void
   updateUserRole: (userId: string, role: "member" | "admin") => void
-  addMessage: (message: Omit<ContactMessage, "id" | "createdAt" | "status">) => void
-  updateMessageStatus: (messageId: string, status: ContactMessage["status"]) => void
-  addAccountRequest: (request: Omit<AccountRequest, "id" | "createdAt" | "status">) => void
-  updateAccountRequest: (requestId: string, status: AccountRequest["status"]) => void
+  addMessage: (message: Omit<ContactMessage, "id" | "createdAt" | "status">) => Promise<void>
+  updateMessageStatus: (messageId: string, status: ContactMessage["status"]) => Promise<void>
+  addAccountRequest: (request: Omit<AccountRequest, "id" | "createdAt" | "status">) => Promise<void>
+  updateAccountRequest: (requestId: string, status: AccountRequest["status"]) => Promise<void>
   // Internal messaging
-  sendInternalMessage: (receiverId: string, subject: string, message: string, replyToId?: string) => void
-  markMessageAsRead: (messageId: string) => void
-  getConversation: (userId: string) => InternalMessage[]
-  getConversations: () => { userId: string; userName: string; lastMessage: InternalMessage; unreadCount: number }[]
-  getUnreadCount: (userId?: string) => number
-  getNotifications: () => {
+  sendInternalMessage: (receiverId: string, subject: string, message: string, replyToId?: string) => Promise<void>
+  markMessageAsRead: (messageId: string) => Promise<void>
+  getConversation: (userId: string) => Promise<InternalMessage[]>
+  getConversations: () => Promise<{ userId: string; userName: string; lastMessage: InternalMessage; unreadCount: number }[]>
+  getUnreadCount: (userId?: string) => Promise<number>
+  getNotifications: () => Promise<{
     newMessages: number
     pendingRequests: number
     unreadInternalMessages: number
-  }
+  }>
+  // Data fetching functions
+  fetchMessages: () => Promise<void>
+  fetchAccountRequests: () => Promise<void>
+  fetchInternalMessages: () => Promise<void>
+  fetchUsers: () => Promise<void>
   setUserFromJWT: (token: string) => void;
   setUser: (user: User | null) => void;
 }
@@ -96,94 +101,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [connectedUsers, setConnectedUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
 
+  // Helper function to get auth headers
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem("token")
+    return {
+      "Content-Type": "application/json",
+      ...(token && { Authorization: `Bearer ${token}` }),
+    }
+  }
+
+  // Helper function to handle API errors
+  const handleApiError = (error: any) => {
+    console.error("API Error:", error)
+    if (error.status === 401) {
+      logout()
+    }
+  }
+
   useEffect(() => {
-    // Initialize with default data
-    const defaultUsers: User[] = [
-      {
-        id: "1",
-        email: "admin@research.com",
-        name: "Administrateur",
-        password: "admin123",
-        role: "admin",
-        status: "active",
-        lastLogin: new Date().toISOString(),
-        createdAt: "2023-01-01T00:00:00Z",
-        verified: true,
-      },
-      {
-        id: "2",
-        email: "member@research.com",
-        name: "Membre Test",
-        password: "member123",
-        role: "member",
-        status: "active",
-        lastLogin: new Date(Date.now() - 86400000).toISOString(),
-        createdAt: "2023-06-01T00:00:00Z",
-        verified: true,
-      },
-    ]
-
-    const defaultMessages: ContactMessage[] = [
-      {
-        id: "1",
-        name: "Dr. Marie Dupont",
-        email: "marie.dupont@university.fr",
-        subject: "Collaboration de recherche",
-        category: "collaboration",
-        message: "Bonjour, je suis intéressée par une collaboration sur vos travaux en IA éthique...",
-        status: "new",
-        createdAt: new Date(Date.now() - 3600000).toISOString(),
-      },
-      {
-        id: "2",
-        name: "Jean Martin",
-        email: "jean.martin@student.fr",
-        subject: "Demande de stage",
-        category: "stage",
-        message: "Je suis étudiant en master et souhaiterais effectuer un stage dans votre laboratoire...",
-        status: "read",
-        createdAt: new Date(Date.now() - 86400000).toISOString(),
-      },
-    ]
-
-    const defaultRequests: AccountRequest[] = [
-      {
-        id: "1",
-        name: "Dr. Sophie Laurent",
-        email: "sophie.laurent@research.fr",
-        password: "sophie123",
-        reason: "Chercheuse en biotechnologie souhaitant rejoindre l'équipe",
-        status: "pending",
-        createdAt: new Date(Date.now() - 7200000).toISOString(),
-      },
-    ]
-
-    const defaultInternalMessages: InternalMessage[] = [
-      {
-        id: "1",
-        senderId: "2",
-        receiverId: "1",
-        subject: "Question sur le projet IA",
-        message: "Bonjour, j'aurais quelques questions concernant le projet d'IA éthique...",
-        status: "unread",
-        createdAt: new Date(Date.now() - 1800000).toISOString(),
-        senderName: "Membre Test",
-        receiverName: "Administrateur",
-        conversationId: "conv_1_2",
-      },
-    ]
-
-    // Load from localStorage or use defaults
-    const storedUsers = localStorage.getItem("users")
-    const storedMessages = localStorage.getItem("messages")
-    const storedRequests = localStorage.getItem("accountRequests")
-    const storedInternalMessages = localStorage.getItem("internalMessages")
-
-    setUsers(storedUsers ? JSON.parse(storedUsers) : defaultUsers)
-    setMessages(storedMessages ? JSON.parse(storedMessages) : defaultMessages)
-    setAccountRequests(storedRequests ? JSON.parse(storedRequests) : defaultRequests)
-    setInternalMessages(storedInternalMessages ? JSON.parse(storedInternalMessages) : defaultInternalMessages)
-
     // Always check for JWT token and fetch user profile if present
     const token = typeof window !== 'undefined' ? localStorage.getItem("token") : null;
     if (token) {
@@ -212,6 +147,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(user);
           localStorage.setItem("user", JSON.stringify(user));
           setConnectedUsers([user]);
+          
+          // Fetch messages data after user is set
+          fetchMessages();
+          fetchAccountRequests();
+          fetchInternalMessages();
+          fetchUsers();
         })
         .catch(() => {
           setUser(null);
@@ -334,40 +275,84 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const addMessage = (messageData: Omit<ContactMessage, "id" | "createdAt" | "status">) => {
-    const newMessage: ContactMessage = {
-      ...messageData,
-      id: Date.now().toString(),
-      status: "new",
-      createdAt: new Date().toISOString(),
+  const addMessage = async (messageData: Omit<ContactMessage, "id" | "createdAt" | "status">) => {
+    try {
+      const response = await fetch("http://localhost:8000/api/messages/contact/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(messageData),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to send message")
+      }
+
+      const newMessage = await response.json()
+      setMessages(prev => [newMessage, ...prev])
+    } catch (error) {
+      handleApiError(error)
+      throw error
     }
-    const updatedMessages = [newMessage, ...messages]
-    setMessages(updatedMessages)
-    localStorage.setItem("messages", JSON.stringify(updatedMessages))
   }
 
-  const updateMessageStatus = (messageId: string, status: ContactMessage["status"]) => {
-    const updatedMessages = messages.map((m) => (m.id === messageId ? { ...m, status } : m))
-    setMessages(updatedMessages)
-    localStorage.setItem("messages", JSON.stringify(updatedMessages))
-  }
+  const updateMessageStatus = async (messageId: string, status: ContactMessage["status"]) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/messages/contact/${messageId}/`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ status }),
+      })
 
-  const addAccountRequest = (requestData: Omit<AccountRequest, "id" | "createdAt" | "status">) => {
-    const newRequest: AccountRequest = {
-      ...requestData,
-      id: Date.now().toString(),
-      status: "pending",
-      createdAt: new Date().toISOString(),
+      if (!response.ok) {
+        throw new Error("Failed to update message status")
+      }
+
+      const updatedMessage = await response.json()
+      setMessages(prev => prev.map(m => m.id === messageId ? updatedMessage : m))
+    } catch (error) {
+      handleApiError(error)
+      throw error
     }
-    const updatedRequests = [newRequest, ...accountRequests]
-    setAccountRequests(updatedRequests)
-    localStorage.setItem("accountRequests", JSON.stringify(updatedRequests))
   }
 
-  const updateAccountRequest = (requestId: string, status: AccountRequest["status"]) => {
-    const updatedRequests = accountRequests.map((r) => (r.id === requestId ? { ...r, status } : r))
-    setAccountRequests(updatedRequests)
-    localStorage.setItem("accountRequests", JSON.stringify(updatedRequests))
+  const addAccountRequest = async (requestData: Omit<AccountRequest, "id" | "createdAt" | "status">) => {
+    try {
+      const response = await fetch("http://localhost:8000/api/messages/account-requests/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestData),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to submit account request")
+      }
+
+      const newRequest = await response.json()
+      setAccountRequests(prev => [newRequest, ...prev])
+    } catch (error) {
+      handleApiError(error)
+      throw error
+    }
+  }
+
+  const updateAccountRequest = async (requestId: string, status: AccountRequest["status"]) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/messages/account-requests/${requestId}/`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ status }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to update account request")
+      }
+
+      const updatedRequest = await response.json()
+      setAccountRequests(prev => prev.map(r => r.id === requestId ? updatedRequest : r))
 
     if (status === "approved") {
       const request = accountRequests.find((r) => r.id === requestId)
@@ -382,104 +367,222 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })
       }
     }
+    } catch (error) {
+      handleApiError(error)
+      throw error
+  }
   }
 
-  const generateConversationId = (userId1: string, userId2: string) => {
-    const sortedIds = [userId1, userId2].sort()
-    return `conv_${sortedIds[0]}_${sortedIds[1]}`
-  }
 
-  const sendInternalMessage = (receiverId: string, subject: string, message: string, replyToId?: string) => {
+
+  const sendInternalMessage = async (receiverId: string, subject: string, message: string, replyToId?: string) => {
     if (!user) return
 
-    const receiver = users.find((u) => u.id === receiverId)
-    if (!receiver) return
-
-    const conversationId = generateConversationId(user.id, receiverId)
-
-    const newMessage: InternalMessage = {
-      id: Date.now().toString(),
-      senderId: user.id,
-      receiverId,
+    try {
+      const response = await fetch("http://localhost:8000/api/messages/internal/", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          receiver: receiverId,
       subject,
       message,
-      status: "unread",
-      createdAt: new Date().toISOString(),
-      senderName: user.name,
-      receiverName: receiver.name,
-      replyToId,
-      conversationId,
-    }
-
-    const updatedMessages = [newMessage, ...internalMessages]
-    setInternalMessages(updatedMessages)
-    localStorage.setItem("internalMessages", JSON.stringify(updatedMessages))
-  }
-
-  const markMessageAsRead = (messageId: string) => {
-    const updatedMessages = internalMessages.map((m) => (m.id === messageId ? { ...m, status: "read" as const } : m))
-    setInternalMessages(updatedMessages)
-    localStorage.setItem("internalMessages", JSON.stringify(updatedMessages))
-  }
-
-  const getConversation = (userId: string) => {
-    if (!user) return []
-    const conversationId = generateConversationId(user.id, userId)
-    return internalMessages
-      .filter((m) => m.conversationId === conversationId)
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-  }
-
-  const getConversations = () => {
-    if (!user) return []
-
-    const conversationMap = new Map<
-      string,
-      { userId: string; userName: string; lastMessage: InternalMessage; unreadCount: number }
-    >()
-
-    internalMessages
-      .filter((m) => m.senderId === user.id || m.receiverId === user.id)
-      .forEach((message) => {
-        const otherUserId = message.senderId === user.id ? message.receiverId : message.senderId
-        const otherUserName = message.senderId === user.id ? message.receiverName : message.senderName
-
-        if (
-          !conversationMap.has(otherUserId) ||
-          new Date(message.createdAt) > new Date(conversationMap.get(otherUserId)!.lastMessage.createdAt)
-        ) {
-          const unreadCount = internalMessages.filter(
-            (m) => m.senderId === otherUserId && m.receiverId === user.id && m.status === "unread",
-          ).length
-
-          conversationMap.set(otherUserId, {
-            userId: otherUserId,
-            userName: otherUserName,
-            lastMessage: message,
-            unreadCount,
-          })
-        }
+          reply_to: replyToId,
+        }),
       })
 
-    return Array.from(conversationMap.values()).sort(
-      (a, b) => new Date(b.lastMessage.createdAt).getTime() - new Date(a.lastMessage.createdAt).getTime(),
-    )
-  }
+      if (!response.ok) {
+        throw new Error("Failed to send message")
+      }
 
-  const getUnreadCount = (userId?: string) => {
-    if (!user) return 0
-    if (userId) {
-      return internalMessages.filter((m) => m.senderId === userId && m.receiverId === user.id && m.status === "unread")
-        .length
+      const newMessage = await response.json()
+      setInternalMessages(prev => [newMessage, ...prev])
+    } catch (error) {
+      handleApiError(error)
+      throw error
     }
-    return internalMessages.filter((m) => m.receiverId === user.id && m.status === "unread").length
   }
 
-  const getNotifications = () => {
+  const markMessageAsRead = async (messageId: string) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/messages/internal/${messageId}/mark_as_read/`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to mark message as read")
+      }
+
+      const updatedMessage = await response.json()
+      setInternalMessages(prev => prev.map(m => m.id === messageId ? updatedMessage : m))
+    } catch (error) {
+      handleApiError(error)
+      throw error
+    }
+  }
+
+  const getConversation = async (userId: string) => {
+    if (!user) return []
+    
+    try {
+      const response = await fetch(`http://localhost:8000/api/messages/internal/conversation/?user_id=${userId}`, {
+        headers: getAuthHeaders(),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch conversation")
+      }
+
+      const messages = await response.json()
+      return messages
+    } catch (error) {
+      handleApiError(error)
+      return []
+    }
+  }
+
+  const getConversations = async () => {
+    if (!user) return []
+
+    try {
+      const response = await fetch("http://localhost:8000/api/messages/internal/conversations/", {
+        headers: getAuthHeaders(),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch conversations")
+      }
+
+      const conversations = await response.json()
+      return conversations
+    } catch (error) {
+      handleApiError(error)
+      return []
+    }
+  }
+
+  const getUnreadCount = async (userId?: string) => {
+    if (!user) return 0
+    
+    try {
+      const url = userId 
+        ? `http://localhost:8000/api/messages/internal/unread_count/?user_id=${userId}`
+        : "http://localhost:8000/api/messages/internal/unread_count/"
+      
+      const response = await fetch(url, {
+        headers: getAuthHeaders(),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch unread count")
+      }
+
+      const data = await response.json()
+      return data.unread_count
+    } catch (error) {
+      handleApiError(error)
+      return 0
+    }
+  }
+
+  // Function to fetch all messages from backend
+  const fetchMessages = async () => {
+    if (!user) return
+    
+    try {
+      const response = await fetch("http://localhost:8000/api/messages/contact/", {
+        headers: getAuthHeaders(),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch messages")
+      }
+
+      const messages = await response.json()
+      setMessages(messages)
+    } catch (error) {
+      handleApiError(error)
+    }
+  }
+
+  // Function to fetch all account requests from backend
+  const fetchAccountRequests = async () => {
+    if (!user) return
+    
+    try {
+      const response = await fetch("http://localhost:8000/api/messages/account-requests/", {
+        headers: getAuthHeaders(),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch account requests")
+      }
+
+      const requests = await response.json()
+      setAccountRequests(requests)
+    } catch (error) {
+      handleApiError(error)
+    }
+  }
+
+  // Function to fetch all internal messages from backend
+  const fetchInternalMessages = async () => {
+    if (!user) return
+    
+    try {
+      const response = await fetch("http://localhost:8000/api/messages/internal/", {
+        headers: getAuthHeaders(),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch internal messages")
+      }
+
+      const messages = await response.json()
+      setInternalMessages(messages)
+    } catch (error) {
+      handleApiError(error)
+    }
+  }
+
+  // Function to fetch all users from backend
+  const fetchUsers = async () => {
+    if (!user) return
+    
+    try {
+      const response = await fetch("http://localhost:8000/api/users/", {
+        headers: getAuthHeaders(),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch users")
+      }
+
+      const usersData = await response.json()
+      // Map backend user data to frontend User type
+      const mappedUsers: User[] = usersData.map((userData: any) => ({
+        id: userData.id.toString(),
+        email: userData.email,
+        name: userData.username,
+        password: "",
+        role: userData.is_staff || userData.is_superuser ? "admin" : "member",
+        status: userData.is_active ? "active" : "banned",
+        lastLogin: new Date().toISOString(),
+        date_joined: userData.date_joined || new Date().toISOString(),
+        verified: true,
+      }))
+      setUsers(mappedUsers)
+    } catch (error) {
+      handleApiError(error)
+    }
+  }
+
+  const getNotifications = async () => {
+    const unreadCount = await getUnreadCount();
     return {
       newMessages: messages.filter((m) => m.status === "new").length,
       pendingRequests: accountRequests.filter((r) => r.status === "pending").length,
-      unreadInternalMessages: getUnreadCount(),
+      unreadInternalMessages: unreadCount,
     }
   }
 
@@ -495,7 +598,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role: "member", // You can adjust this if your JWT includes role
         status: "active",
         lastLogin: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
+        date_joined: new Date().toISOString(),
         verified: true,
       };
       setUser(user);
@@ -536,6 +639,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         getConversations,
         getUnreadCount,
         getNotifications,
+        fetchMessages,
+        fetchAccountRequests,
+        fetchInternalMessages,
+        fetchUsers,
         setUserFromJWT, // Export this function
         setUser, // Export setUser for Google login
       }}
