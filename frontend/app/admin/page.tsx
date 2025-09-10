@@ -31,6 +31,7 @@ import {
   Send,
   Calendar,
   Plus,
+  Clock,
 } from "lucide-react"
 import { useAuth } from "@/components/auth-provider"
 import { useContentManager, type SiteContent } from "@/lib/content-manager"
@@ -65,6 +66,7 @@ export default function AdminPage() {
     markMessageAsRead,
     getConversation,
     getUnreadCount,
+    fetchUsers,
   } = useAuth()
   const { content, updateContent } = useContentManager()
   
@@ -86,14 +88,51 @@ export default function AdminPage() {
   const [isEditing, setIsEditing] = useState(false)
   const [eventRegistrations, setEventRegistrations] = useState<EventRegistration[]>([])
   const [unreadInternalMessages, setUnreadInternalMessages] = useState(0)
+  const [userSearchTerm, setUserSearchTerm] = useState("")
+  const [userRoleFilter, setUserRoleFilter] = useState<string>("all")
+  const [userActionLoading, setUserActionLoading] = useState<string | null>(null)
+  const [isFetchingUsers, setIsFetchingUsers] = useState(false)
+  const [lastFetchTime, setLastFetchTime] = useState(0)
   
   const router = useRouter()
+
+  // Function to refresh users data with debouncing
+  const refreshUsers = async () => {
+    const now = Date.now()
+    const timeSinceLastFetch = now - lastFetchTime
+    
+    // Prevent multiple simultaneous requests and debounce rapid calls
+    if (isFetchingUsers || timeSinceLastFetch < 2000) {
+      console.log("Skipping fetch - too soon or already fetching")
+      return
+    }
+    
+    try {
+      setIsFetchingUsers(true)
+      setLastFetchTime(now)
+      console.log("Manually refreshing users...")
+      await fetchUsers()
+    } catch (error) {
+      console.error('Error refreshing users:', error)
+    } finally {
+      setIsFetchingUsers(false)
+    }
+  }
 
   useEffect(() => {
     if (!loading && (!user || user.role !== "admin")) {
       router.push("/login")
     }
   }, [user, loading, router])
+
+  // Debug: Log users data (commented out to reduce console noise)
+  // useEffect(() => {
+  //   console.log("Users data:", users)
+  //   console.log("Users length:", users.length)
+  // }, [users])
+
+  // Note: Users are automatically fetched by the auth provider after login
+  // No need to manually fetch here to prevent infinite loops
 
   useEffect(() => {
     if (user) {
@@ -472,15 +511,157 @@ export default function AdminPage() {
           <TabsContent value="users">
             <Card className="card-professional border-0 shadow-lg">
               <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Users className="h-5 w-5 mr-2 text-indigo-600" />
-                  Gestion des utilisateurs
+                <CardTitle className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <Users className="h-5 w-5 mr-2 text-indigo-600" />
+                    Gestion des utilisateurs
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-sm">
+                      {users.length} utilisateur{users.length > 1 ? 's' : ''}
+                    </Badge>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={refreshUsers}
+                      className="text-indigo-600 hover:text-indigo-700"
+                      title="Actualiser la liste des utilisateurs"
+                      disabled={isFetchingUsers}
+                    >
+                      {isFetchingUsers ? (
+                        <Activity className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Activity className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
                 </CardTitle>
               </CardHeader>
               <CardContent>
+                {/* Search and Filter Controls */}
+                <div className="mb-6 space-y-4">
+                  <div className="flex flex-col sm:flex-row gap-4">
+                    <div className="flex-1">
+                      <Input
+                        placeholder="Rechercher un utilisateur par nom ou email..."
+                        value={userSearchTerm}
+                        onChange={(e) => setUserSearchTerm(e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                    <Select value={userRoleFilter} onValueChange={setUserRoleFilter}>
+                      <SelectTrigger className="w-48">
+                        <SelectValue placeholder="Filtrer par rôle" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Tous les rôles</SelectItem>
+                        <SelectItem value="admin">Admin</SelectItem>
+                        <SelectItem value="chef_d_equipe">Chef d'équipe</SelectItem>
+                        <SelectItem value="member">Membre</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setUserSearchTerm("")
+                        setUserRoleFilter("all")
+                      }}
+                      className="whitespace-nowrap"
+                    >
+                      Réinitialiser
+                    </Button>
+                  </div>
+                </div>
+
+                {/* User Statistics */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                  <Card className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-slate-600">Total</p>
+                        <p className="text-2xl font-bold text-slate-900">{users.length}</p>
+                      </div>
+                      <Users className="h-8 w-8 text-slate-400" />
+                    </div>
+                  </Card>
+                  <Card className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-slate-600">Actifs</p>
+                        <p className="text-2xl font-bold text-green-600">{users.filter(u => u.status === "active").length}</p>
+                      </div>
+                      <UserCheck className="h-8 w-8 text-green-400" />
+                    </div>
+                  </Card>
+                  <Card className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-slate-600">Bannis</p>
+                        <p className="text-2xl font-bold text-red-600">{users.filter(u => u.status === "banned").length}</p>
+                      </div>
+                      <Ban className="h-8 w-8 text-red-400" />
+                    </div>
+                  </Card>
+                  <Card className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-slate-600">Vérifiés</p>
+                        <p className="text-2xl font-bold text-blue-600">{users.filter(u => u.verified).length}</p>
+                      </div>
+                      <CheckCircle className="h-8 w-8 text-blue-400" />
+                    </div>
+                  </Card>
+                </div>
+                
                 <div className="space-y-4">
-                  {users.map((userItem) => (
-                    <div key={userItem.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                  {(() => {
+                    const filteredUsers = users.filter((userItem) => {
+                      const matchesSearch = userItem.name.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
+                                          userItem.email.toLowerCase().includes(userSearchTerm.toLowerCase())
+                      const matchesRole = userRoleFilter === "all" || userItem.role === userRoleFilter
+                      return matchesSearch && matchesRole
+                    })
+                    
+                    if (filteredUsers.length === 0) {
+                      if (users.length === 0) {
+                        return (
+                          <div className="text-center py-8 text-gray-500">
+                            <Users className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                            <p>Aucun utilisateur dans le système</p>
+                            <p className="text-sm">Les utilisateurs apparaîtront ici une fois qu'ils se seront inscrits</p>
+                            <Button 
+                              onClick={refreshUsers} 
+                              variant="outline" 
+                              className="mt-4"
+                            >
+                              <Activity className="h-4 w-4 mr-2" />
+                              Actualiser
+                            </Button>
+                          </div>
+                        )
+                      } else {
+                        return (
+                          <div className="text-center py-8 text-gray-500">
+                            <Users className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                            <p>Aucun utilisateur trouvé</p>
+                            <p className="text-sm">Essayez de modifier vos critères de recherche</p>
+                            <Button 
+                              onClick={() => {
+                                setUserSearchTerm("")
+                                setUserRoleFilter("all")
+                              }} 
+                              variant="outline" 
+                              className="mt-4"
+                            >
+                              Réinitialiser les filtres
+                            </Button>
+                          </div>
+                        )
+                      }
+                    }
+                    
+                    return filteredUsers.map((userItem) => (
+                      <div key={userItem.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
                       <div className="flex items-center space-x-4">
                         <div
                           className={`w-10 h-10 rounded-full flex items-center justify-center ${
@@ -499,10 +680,12 @@ export default function AdminPage() {
                               className={
                                 userItem.role === "admin"
                                   ? "bg-purple-100 text-purple-700"
+                                  : userItem.role === "chef_d_equipe"
+                                  ? "bg-orange-100 text-orange-700"
                                   : "bg-blue-100 text-blue-700"
                               }
                             >
-                              {userItem.role === "admin" ? "Admin" : "Membre"}
+                              {userItem.role === "admin" ? "Admin" : userItem.role === "chef_d_equipe" ? "Chef d'équipe" : "Membre"}
                             </Badge>
                             <Badge
                               className={
@@ -518,18 +701,46 @@ export default function AdminPage() {
                               </Badge>
                             )}
                           </div>
+                          <div className="flex items-center space-x-4 mt-2 text-xs text-slate-500">
+                            <div className="flex items-center">
+                              <Clock className="h-3 w-3 mr-1" />
+                              Inscrit le {new Date(userItem.date_joined).toLocaleDateString('fr-FR')}
+                            </div>
+                            {userItem.lastLogin && (
+                              <div className="flex items-center">
+                                <Activity className="h-3 w-3 mr-1" />
+                                Dernière connexion: {new Date(userItem.lastLogin).toLocaleDateString('fr-FR')}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <div className="flex items-center space-x-2">
                         <Select
                           value={userItem.role}
-                          onValueChange={(role: "member" | "admin") => updateUserRole(userItem.id, role)}
+                          onValueChange={async (role: "member" | "admin" | "chef_d_equipe") => {
+                            if (confirm(`Êtes-vous sûr de vouloir changer le rôle de ${userItem.name} vers ${role === 'admin' ? 'Admin' : role === 'chef_d_equipe' ? 'Chef d\'équipe' : 'Membre'} ?`)) {
+                              setUserActionLoading(`role-${userItem.id}`)
+                              try {
+                                await updateUserRole(userItem.id, role)
+                                // Refresh users data
+                                await fetchUsers()
+                              } catch (error) {
+                                console.error('Error updating user role:', error)
+                                alert('Erreur lors de la mise à jour du rôle')
+                              } finally {
+                                setUserActionLoading(null)
+                              }
+                            }
+                          }}
+                          disabled={userActionLoading === `role-${userItem.id}`}
                         >
                           <SelectTrigger className="w-32">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="member">Membre</SelectItem>
+                            <SelectItem value="chef_d_equipe">Chef d'équipe</SelectItem>
                             <SelectItem value="admin">Admin</SelectItem>
                           </SelectContent>
                         </Select>
@@ -537,32 +748,93 @@ export default function AdminPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => banUser(userItem.id)}
+                            onClick={async () => {
+                              if (confirm(`Êtes-vous sûr de vouloir bannir ${userItem.name} ?`)) {
+                                setUserActionLoading(`ban-${userItem.id}`)
+                                try {
+                                  await banUser(userItem.id)
+                                  // Refresh users data
+                                  await fetchUsers()
+                                } catch (error) {
+                                  console.error('Error banning user:', error)
+                                  alert('Erreur lors du bannissement de l\'utilisateur')
+                                } finally {
+                                  setUserActionLoading(null)
+                                }
+                              }
+                            }}
                             className="border-red-300 text-red-600 hover:bg-red-50"
+                            title="Bannir l'utilisateur"
+                            disabled={userActionLoading === `ban-${userItem.id}`}
                           >
-                            <Ban className="h-4 w-4" />
+                            {userActionLoading === `ban-${userItem.id}` ? (
+                              <Activity className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Ban className="h-4 w-4" />
+                            )}
                           </Button>
                         ) : (
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => unbanUser(userItem.id)}
+                            onClick={async () => {
+                              if (confirm(`Êtes-vous sûr de vouloir débannir ${userItem.name} ?`)) {
+                                setUserActionLoading(`unban-${userItem.id}`)
+                                try {
+                                  await unbanUser(userItem.id)
+                                  // Refresh users data
+                                  await fetchUsers()
+                                } catch (error) {
+                                  console.error('Error unbanning user:', error)
+                                  alert('Erreur lors du débannissement de l\'utilisateur')
+                                } finally {
+                                  setUserActionLoading(null)
+                                }
+                              }
+                            }}
                             className="border-green-300 text-green-600 hover:bg-green-50"
+                            title="Débannir l'utilisateur"
+                            disabled={userActionLoading === `unban-${userItem.id}`}
                           >
-                            <UserCheck className="h-4 w-4" />
+                            {userActionLoading === `unban-${userItem.id}` ? (
+                              <Activity className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <UserCheck className="h-4 w-4" />
+                            )}
                           </Button>
                         )}
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => deleteUser(userItem.id)}
+                          onClick={async () => {
+                            if (confirm(`Êtes-vous sûr de vouloir supprimer définitivement ${userItem.name} ? Cette action est irréversible.`)) {
+                              setUserActionLoading(`delete-${userItem.id}`)
+                              try {
+                                await deleteUser(userItem.id)
+                                // Refresh users data
+                                await fetchUsers()
+                              } catch (error) {
+                                console.error('Error deleting user:', error)
+                                alert('Erreur lors de la suppression de l\'utilisateur')
+                              } finally {
+                                setUserActionLoading(null)
+                              }
+                            }
+                          }}
                           className="border-red-300 text-red-600 hover:bg-red-50"
+                          title="Supprimer définitivement l'utilisateur"
+                          disabled={userActionLoading === `delete-${userItem.id}`}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          {userActionLoading === `delete-${userItem.id}` ? (
+                            <Activity className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
                         </Button>
                       </div>
                     </div>
-                  ))}
+                    ))
+                  })()}
                 </div>
               </CardContent>
             </Card>

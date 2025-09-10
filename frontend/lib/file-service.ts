@@ -22,7 +22,7 @@ export async function uploadFile(file: File): Promise<FileResponse> {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch('http://localhost:8000/api/files', {
+  const response = await fetch('http://localhost:8000/api/files/', {
     method: 'POST',
     body: formData,
     headers,
@@ -49,7 +49,7 @@ export async function getUserFiles(): Promise<FileResponse[]> {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch('http://localhost:8000/api/files', {
+    const response = await fetch('http://localhost:8000/api/files/', {
       headers,
     });
 
@@ -78,7 +78,7 @@ export async function deleteFile(fileId: string): Promise<void> {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`http://localhost:8000/api/files/${fileId}`, {
+  const response = await fetch(`http://localhost:8000/api/files/${fileId}/`, {
     method: 'DELETE',
     headers,
   });

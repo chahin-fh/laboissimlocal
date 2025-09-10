@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button"
 import { Search, BookOpen, FileText, Users, Award, ExternalLink, Download, Eye, Tag, UserPlus } from "lucide-react"
 import { getPublications } from "@/lib/publication-service"
+import PublicationDetailModal from "@/components/publication-detail-modal"
 
 interface PublicationResponse {
   id: string;
@@ -45,6 +46,8 @@ export default function PublicationsPage() {
   const [selectedYear, setSelectedYear] = useState("all")
   const [dynamicPublications, setDynamicPublications] = useState<PublicationResponse[]>([])
   const [loading, setLoading] = useState(true)
+  const [selectedPublication, setSelectedPublication] = useState<PublicationResponse | null>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
 
   const fetchPublications = async () => {
     try {
@@ -73,6 +76,16 @@ export default function PublicationsPage() {
         staggerChildren: 0.1,
       },
     },
+  }
+
+  const handlePublicationClick = (publication: PublicationResponse) => {
+    setSelectedPublication(publication)
+    setIsModalOpen(true)
+  }
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false)
+    setSelectedPublication(null)
   }
 
   // Transform dynamic publications to match the display format
@@ -247,7 +260,10 @@ export default function PublicationsPage() {
           {filteredPublications.length > 0 ? (
             filteredPublications.map((publication, index) => (
               <motion.div key={publication.id} variants={fadeInUp}>
-                <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg hover:shadow-xl transition-all duration-300">
+                <Card 
+                  className="bg-white/80 backdrop-blur-sm border-0 shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer"
+                  onClick={() => handlePublicationClick(publication)}
+                >
                   <CardHeader>
                     <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
                       <div className="flex-grow">
@@ -272,6 +288,21 @@ export default function PublicationsPage() {
                         </CardTitle>
                         <p className="text-gray-600 mb-2">
                           <strong>Auteurs:</strong> {publication.authors.join(", ")}
+                          {publication.posted_by && (
+                            <span className="ml-2">
+                              (Principal:{" "}
+                              <span 
+                                className="text-blue-600 hover:text-blue-800 cursor-pointer underline"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  window.location.href = `/profile/${publication.posted_by!.id}`;
+                                }}
+                              >
+                                {publication.posted_by.name}
+                              </span>
+                              )
+                            </span>
+                          )}
                         </p>
                         <p className="text-gray-600 mb-3">
                           <strong>Journal:</strong> {publication.journal}
@@ -304,7 +335,16 @@ export default function PublicationsPage() {
                             </div>
                             <div className="flex flex-wrap gap-2">
                               {publication.tagged_members.map((member) => (
-                                <Badge key={member.id} variant="outline" className="border-blue-200 text-blue-600">
+                                <Badge 
+                                  key={member.id} 
+                                  variant="outline" 
+                                  className="border-blue-200 text-blue-600 hover:bg-blue-100 cursor-pointer"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    // Navigate to member profile
+                                    window.location.href = `/profile/${member.id}`;
+                                  }}
+                                >
                                   {member.name}
                                 </Badge>
                               ))}
@@ -321,7 +361,16 @@ export default function PublicationsPage() {
                             </div>
                             <div className="flex flex-wrap gap-2">
                               {publication.tagged_externals.map((external) => (
-                                <Badge key={external.id} variant="outline" className="border-green-200 text-green-600">
+                                <Badge 
+                                  key={external.id} 
+                                  variant="outline" 
+                                  className="border-green-200 text-green-600 hover:bg-green-100 cursor-pointer"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    // Navigate to external profile page
+                                    window.location.href = `/external-profile/${external.id}`;
+                                  }}
+                                >
                                   {external.name}
                                 </Badge>
                               ))}
@@ -355,28 +404,6 @@ export default function PublicationsPage() {
                       </div>
                     </div>
                   </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <Button
-                        variant="outline"
-                        className="border-violet-600 text-violet-600 hover:bg-violet-600 hover:text-white"
-                      >
-                        <Eye className="h-4 w-4 mr-2" />
-                        Voir l'article
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="border-electric-600 text-electric-600 hover:bg-electric-600 hover:text-white"
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Télécharger PDF
-                      </Button>
-                      <Button variant="ghost" className="text-gray-600 hover:text-violet-600">
-                        <ExternalLink className="h-4 w-4 mr-2" />
-                        DOI: {publication.doi}
-                      </Button>
-                    </div>
-                  </CardContent>
                 </Card>
               </motion.div>
             ))
@@ -386,6 +413,15 @@ export default function PublicationsPage() {
             </div>
           )}
         </motion.div>
+
+        {/* Publication Detail Modal */}
+        {selectedPublication && (
+          <PublicationDetailModal
+            publication={selectedPublication}
+            isOpen={isModalOpen}
+            onClose={handleCloseModal}
+          />
+        )}
       </div>
     </div>
   )

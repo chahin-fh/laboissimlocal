@@ -26,13 +26,11 @@ export default function HomePage() {
   const { content } = useContentManager()
   const heroRef = useRef(null)
   const statsRef = useRef(null)
-  const projectsRef = useRef(null)
   const newsRef = useRef(null)
   const ctaRef = useRef(null)
 
   const isHeroInView = useInView(heroRef, { once: true })
   const isStatsInView = useInView(statsRef, { once: true })
-  const isProjectsInView = useInView(projectsRef, { once: true })
   const isNewsInView = useInView(newsRef, { once: true })
   const isCtaInView = useInView(ctaRef, { once: true })
 
@@ -241,137 +239,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Featured Projects */}
-      <section ref={projectsRef} className="py-20 relative">
-        <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/50 via-transparent to-purple-50/30" />
-
-        <div className="container mx-auto px-4 relative z-10">
-          <motion.div
-            initial={{ opacity: 0, y: 50 }}
-            animate={isProjectsInView ? { opacity: 1, y: 0 } : {}}
-            transition={{ duration: 0.8 }}
-            className="text-center mb-16"
-          >
-            <motion.span
-              className="inline-block"
-              initial={{ opacity: 0, scale: 0, rotate: -180 }}
-              animate={isProjectsInView ? { opacity: 1, scale: 1, rotate: 0 } : {}}
-              transition={{ duration: 0.6, delay: 0.2 }}
-            >
-              <TrendingUp className="h-12 w-12 text-indigo-600 mx-auto mb-6 icon-enhanced" />
-            </motion.span>
-            <h2 className="text-5xl md:text-6xl font-bold text-slate-800 mb-6 heading-modern relative">
-              Projets d'Excellence
-              <motion.span
-                className="absolute -bottom-3 left-1/2 transform -translate-x-1/2 h-1 gradient-primary rounded-full"
-                initial={{ width: 0 }}
-                animate={isProjectsInView ? { width: "120px" } : {}}
-                transition={{ duration: 0.8, delay: 0.5 }}
-              />
-            </h2>
-            <p className="text-xl text-professional max-w-3xl mx-auto">
-              Découvrez nos recherches révolutionnaires qui façonnent l'avenir de la science
-            </p>
-          </motion.div>
-
-          <motion.div
-            variants={staggerContainer}
-            initial="initial"
-            animate={isProjectsInView ? "animate" : "initial"}
-            className="grid md:grid-cols-2 lg:grid-cols-3 gap-8"
-          >
-            {[
-              {
-                title: "Intelligence Artificielle Éthique",
-                description: "Développement d'algorithmes d'IA responsables et transparents pour un futur durable",
-                category: "IA & Éthique",
-                image: "/placeholder.svg?height=250&width=400",
-                progress: 75,
-                team: 8,
-              },
-              {
-                title: "Médecine Personnalisée",
-                description: "Révolutionner les traitements médicaux grâce à la génomique avancée",
-                category: "Biotechnologie",
-                image: "/placeholder.svg?height=250&width=400",
-                progress: 60,
-                team: 12,
-              },
-              {
-                title: "Énergies Renouvelables",
-                description: "Innovation dans les technologies solaires de nouvelle génération",
-                category: "Environnement",
-                image: "/placeholder.svg?height=250&width=400",
-                progress: 85,
-                team: 6,
-              },
-            ].map((project, index) => (
-              <motion.div
-                key={index}
-                variants={fadeInUp}
-                whileHover={{ y: -12, transition: { duration: 0.3 } }}
-                className="group"
-              >
-                <Card className="card-professional border-0 overflow-hidden h-full hover-lift">
-                  <div className="relative overflow-hidden">
-                    <div className="w-full h-48 bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center relative">
-                      <Zap className="h-16 w-16 text-white/80 icon-enhanced" />
-                      <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors duration-300" />
-                    </div>
-                    <div className="absolute top-4 left-4">
-                      <Badge className="gradient-primary text-white font-medium px-3 py-1 rounded-full">
-                        {project.category}
-                      </Badge>
-                    </div>
-                    <div className="absolute top-4 right-4">
-                      <Badge variant="outline" className="bg-white/90 backdrop-blur-sm border-white/50 text-slate-700">
-                        {project.team} membres
-                      </Badge>
-                    </div>
-                  </div>
-                  <CardHeader className="pb-4">
-                    <CardTitle className="text-xl group-hover:text-indigo-600 transition-colors heading-modern">
-                      {project.title}
-                    </CardTitle>
-                    <CardDescription className="text-professional leading-relaxed">
-                      {project.description}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="pt-0">
-                    <div className="mb-4">
-                      <div className="flex justify-between text-sm text-slate-600 mb-2">
-                        <span>Progression</span>
-                        <span>{project.progress}%</span>
-                      </div>
-                      <div className="w-full bg-slate-200 rounded-full h-2">
-                        <motion.div
-                          className="gradient-primary h-2 rounded-full"
-                          initial={{ width: 0 }}
-                          animate={isProjectsInView ? { width: `${project.progress}%` } : {}}
-                          transition={{ duration: 1, delay: index * 0.2 + 0.5 }}
-                        />
-                      </div>
-                    </div>
-                    <Button variant="ghost" className="text-indigo-600 hover:text-indigo-700 p-0 group/btn">
-                      En savoir plus
-                      <ArrowRight className="ml-2 h-4 w-4 group-hover/btn:translate-x-1 transition-transform icon-enhanced" />
-                    </Button>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
-          </motion.div>
-
-          <div className="text-center mt-12">
-            <Link href="/projects">
-              <Button className="btn-modern text-white px-8 py-3 text-lg rounded-xl">
-                Voir tous nos projets
-                <ArrowRight className="ml-3 h-5 w-5 icon-enhanced" />
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </section>
 
       {/* News Section */}
       <section ref={newsRef} className="py-20 gradient-primary text-white relative overflow-hidden">

@@ -7,8 +7,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
-import { X, Search, Upload, Plus, Users, UserPlus, FileText, Tag } from "lucide-react"
+import { X, Search, Upload, Plus, Users, UserPlus, FileText, Tag, User } from "lucide-react"
 import { searchMembers, searchExternals, createPublication } from "@/lib/publication-service"
+import { createExternalMember } from "@/lib/external-member-service"
+import { uploadFile } from "@/lib/file-service"
 import { useToast } from "@/hooks/use-toast"
 
 interface MemberSearchResult {
@@ -40,7 +42,6 @@ export function PublicationForm({ onSuccess, onCancel }: PublicationFormProps) {
   const [memberSearchResults, setMemberSearchResults] = useState<MemberSearchResult[]>([])
   const [selectedMembers, setSelectedMembers] = useState<MemberSearchResult[]>([])
   const [showMemberResults, setShowMemberResults] = useState(false)
-  const [memberSearchLoading, setMemberSearchLoading] = useState(false)
   const memberSearchRef = useRef<HTMLDivElement>(null)
   
   // External search
@@ -48,19 +49,26 @@ export function PublicationForm({ onSuccess, onCancel }: PublicationFormProps) {
   const [externalSearchResults, setExternalSearchResults] = useState<ExternalSearchResult[]>([])
   const [selectedExternals, setSelectedExternals] = useState<ExternalSearchResult[]>([])
   const [showExternalResults, setShowExternalResults] = useState(false)
-  const [externalSearchLoading, setExternalSearchLoading] = useState(false)
   const externalSearchRef = useRef<HTMLDivElement>(null)
   
   // File upload
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   
+  // External member form
+  const [showExternalMemberForm, setShowExternalMemberForm] = useState(false)
+  const [externalMemberForm, setExternalMemberForm] = useState({
+    name: '',
+    email: '',
+    cv: null as File | null,
+    profilePic: null as File | null
+  })
+  
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Load all members when component mounts
   useEffect(() => {
-    loadAllMembers()
-    loadAllExternals()
+    // Don't load all members automatically - only load when searching
   }, [])
 
   // Click outside handlers
@@ -79,86 +87,6 @@ export function PublicationForm({ onSuccess, onCancel }: PublicationFormProps) {
       document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [])
-
-  const loadAllMembers = async () => {
-    try {
-      setMemberSearchLoading(true)
-      const results = await searchMembers("") // Empty query to get all members
-      setMemberSearchResults(results)
-    } catch (error) {
-      console.error('Error loading members:', error)
-      toast({
-        title: "Erreur",
-        description: "Impossible de charger les membres",
-        variant: "destructive",
-      })
-    } finally {
-      setMemberSearchLoading(false)
-    }
-  }
-
-  const loadAllExternals = async () => {
-    try {
-      setExternalSearchLoading(true)
-      const results = await searchExternals("") // Empty query to get all externals
-      setExternalSearchResults(results)
-    } catch (error) {
-      console.error('Error loading externals:', error)
-      toast({
-        title: "Erreur",
-        description: "Impossible de charger les profils externes",
-        variant: "destructive",
-      })
-    } finally {
-      setExternalSearchLoading(false)
-    }
-  }
-
-  // Debounced search for members
-  useEffect(() => {
-    const timeoutId = setTimeout(async () => {
-      try {
-        setMemberSearchLoading(true)
-        const results = await searchMembers(memberSearchQuery)
-        setMemberSearchResults(results)
-        setShowMemberResults(true)
-      } catch (error) {
-        console.error('Error searching members:', error)
-        toast({
-          title: "Erreur",
-          description: "Impossible de rechercher les membres",
-          variant: "destructive",
-        })
-      } finally {
-        setMemberSearchLoading(false)
-      }
-    }, 300)
-
-    return () => clearTimeout(timeoutId)
-  }, [memberSearchQuery, toast])
-
-  // Debounced search for externals
-  useEffect(() => {
-    const timeoutId = setTimeout(async () => {
-      try {
-        setExternalSearchLoading(true)
-        const results = await searchExternals(externalSearchQuery)
-        setExternalSearchResults(results)
-        setShowExternalResults(true)
-      } catch (error) {
-        console.error('Error searching externals:', error)
-        toast({
-          title: "Erreur",
-          description: "Impossible de rechercher les profils externes",
-          variant: "destructive",
-        })
-      } finally {
-        setExternalSearchLoading(false)
-      }
-    }, 300)
-
-    return () => clearTimeout(timeoutId)
-  }, [externalSearchQuery, toast])
 
   const handleAddKeyword = () => {
     if (keywordInput.trim() && !keywords.includes(keywordInput.trim())) {
@@ -204,6 +132,64 @@ export function PublicationForm({ onSuccess, onCancel }: PublicationFormProps) {
     setSelectedFiles(selectedFiles.filter((_, i) => i !== index))
   }
 
+  const handleSubmitExternalMember = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!externalMemberForm.name.trim() || !externalMemberForm.email.trim()) {
+      toast({
+        title: "Erreur",
+        description: "Le nom et l'email sont requis pour créer un profil externe",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSubmitting(true)
+
+    try {
+      // Create the external member using the API
+      const newExternalMember = await createExternalMember({
+        name: externalMemberForm.name,
+        email: externalMemberForm.email,
+        cv: externalMemberForm.cv || undefined,
+        profile_pic: externalMemberForm.profilePic || undefined
+      })
+
+      console.log('External member created successfully:', newExternalMember)
+
+      // Add the new member to the selected externals
+      setSelectedExternals(prev => [...prev, {
+        id: newExternalMember.id,
+        name: newExternalMember.name,
+        email: newExternalMember.email
+      }])
+
+      toast({
+        title: "Succès",
+        description: "Profil externe créé avec succès et ajouté à la publication",
+      })
+      
+      // Reset form
+      setExternalMemberForm({
+        name: '',
+        email: '',
+        cv: null,
+        profilePic: null
+      })
+      setShowExternalMemberForm(false)
+      
+    } catch (error) {
+      console.error('Error creating external member:', error)
+      toast({
+        title: "Erreur",
+        description: "Impossible de créer le profil externe",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
@@ -219,15 +205,41 @@ export function PublicationForm({ onSuccess, onCancel }: PublicationFormProps) {
     setIsSubmitting(true)
 
     try {
+      // First, upload all selected files
+      const uploadedFileIds: string[] = []
+      
+      if (selectedFiles.length > 0) {
+        toast({
+          title: "Upload en cours",
+          description: "Téléchargement des fichiers...",
+        })
+        
+        for (const file of selectedFiles) {
+          try {
+            const uploadedFile = await uploadFile(file)
+            uploadedFileIds.push(uploadedFile.id)
+          } catch (error) {
+            console.error(`Error uploading file ${file.name}:`, error)
+            toast({
+              title: "Erreur",
+              description: `Impossible de télécharger le fichier ${file.name}`,
+              variant: "destructive",
+            })
+            return
+          }
+        }
+      }
+
       const publicationData = {
         title: title.trim(),
         abstract: abstract.trim(),
         tagged_members: selectedMembers.map(m => m.id),
         tagged_externals: selectedExternals.map(e => e.id),
         keywords: keywords,
-        // Note: File upload would need to be handled separately with FormData
-        // For now, we'll skip attached_files
+        attached_files: uploadedFileIds,
       }
+
+      console.log('Publication data being sent:', publicationData)
 
       await createPublication(publicationData)
       
@@ -347,16 +359,31 @@ export function PublicationForm({ onSuccess, onCancel }: PublicationFormProps) {
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
                     value={memberSearchQuery}
-                    onChange={(e) => setMemberSearchQuery(e.target.value)}
-                    onFocus={() => setShowMemberResults(true)}
+                    onChange={(e) => {
+                      const query = e.target.value
+                      setMemberSearchQuery(query)
+                      if (query.trim()) {
+                        setShowMemberResults(true)
+                        // Search for members when typing
+                        searchMembers(query).then(results => {
+                          setMemberSearchResults(results)
+                        }).catch(error => {
+                          console.error('Error searching members:', error)
+                        })
+                      } else {
+                        setShowMemberResults(false)
+                        setMemberSearchResults([])
+                      }
+                    }}
+                    onFocus={() => {
+                      // Only show results if there's a search query
+                      if (memberSearchQuery.trim()) {
+                        setShowMemberResults(true)
+                      }
+                    }}
                     placeholder="Rechercher un membre..."
                     className="pl-10"
                   />
-                  {memberSearchLoading && (
-                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                      <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
-                    </div>
-                  )}
                 </div>
               </div>
               
@@ -376,7 +403,7 @@ export function PublicationForm({ onSuccess, onCancel }: PublicationFormProps) {
                 </div>
               )}
               
-              {showMemberResults && memberSearchResults.length === 0 && !memberSearchLoading && (
+              {showMemberResults && memberSearchQuery.trim() && memberSearchResults.length === 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg p-4 text-center text-gray-500">
                   Aucun membre trouvé
                 </div>
@@ -414,17 +441,41 @@ export function PublicationForm({ onSuccess, onCancel }: PublicationFormProps) {
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
                     value={externalSearchQuery}
-                    onChange={(e) => setExternalSearchQuery(e.target.value)}
-                    onFocus={() => setShowExternalResults(true)}
+                    onChange={(e) => {
+                      const query = e.target.value
+                      setExternalSearchQuery(query)
+                      if (query.trim()) {
+                        setShowExternalResults(true)
+                        // Search for externals when typing
+                        searchExternals(query).then(results => {
+                          setExternalSearchResults(results)
+                        }).catch(error => {
+                          console.error('Error searching externals:', error)
+                        })
+                      } else {
+                        setShowExternalResults(false)
+                        setExternalSearchResults([])
+                      }
+                    }}
+                    onFocus={() => {
+                      // Only show results if there's a search query
+                      if (externalSearchQuery.trim()) {
+                        setShowExternalResults(true)
+                      }
+                    }}
                     placeholder="Rechercher un profil externe..."
                     className="pl-10"
                   />
-                  {externalSearchLoading && (
-                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                      <div className="w-4 h-4 border-2 border-gray-300 border-t-green-600 rounded-full animate-spin"></div>
-                    </div>
-                  )}
                 </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowExternalMemberForm(true)}
+                  className="whitespace-nowrap bg-green-50 border-green-200 text-green-700 hover:bg-green-100"
+                >
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Ajouter un profil
+                </Button>
               </div>
               
               {showExternalResults && externalSearchResults.length > 0 && (
@@ -443,7 +494,7 @@ export function PublicationForm({ onSuccess, onCancel }: PublicationFormProps) {
                 </div>
               )}
               
-              {showExternalResults && externalSearchResults.length === 0 && !externalSearchLoading && (
+              {showExternalResults && externalSearchQuery.trim() && externalSearchResults.length === 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg p-4 text-center text-gray-500">
                   Aucun profil externe trouvé
                 </div>
@@ -531,6 +582,141 @@ export function PublicationForm({ onSuccess, onCancel }: PublicationFormProps) {
           </div>
         </form>
       </CardContent>
+      
+      {/* External Member Form Modal */}
+      {showExternalMemberForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-800">Ajouter un profil externe</h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowExternalMemberForm(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            
+            <form onSubmit={handleSubmitExternalMember} className="space-y-4">
+              {/* Name */}
+              <div className="space-y-2">
+                <Label htmlFor="externalName">Nom complet *</Label>
+                <Input
+                  id="externalName"
+                  value={externalMemberForm.name}
+                  onChange={(e) => setExternalMemberForm(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="Nom et prénom..."
+                  required
+                />
+              </div>
+              
+              {/* Email */}
+              <div className="space-y-2">
+                <Label htmlFor="externalEmail">Email *</Label>
+                <Input
+                  id="externalEmail"
+                  type="email"
+                  value={externalMemberForm.email}
+                  onChange={(e) => setExternalMemberForm(prev => ({ ...prev, email: e.target.value }))}
+                  placeholder="email@exemple.com"
+                  required
+                />
+              </div>
+              
+              {/* CV Upload */}
+              <div className="space-y-2">
+                <Label htmlFor="externalCV">CV (PDF)</Label>
+                <Input
+                  id="externalCV"
+                  type="file"
+                  accept=".pdf,.doc,.docx"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setExternalMemberForm(prev => ({ ...prev, cv: file }))
+                  }}
+                  className="cursor-pointer"
+                />
+                <p className="text-xs text-gray-500">Formats acceptés: PDF, DOC, DOCX</p>
+                {externalMemberForm.cv && (
+                  <div className="flex items-center gap-2 p-2 bg-blue-50 rounded-md">
+                    <FileText className="h-4 w-4 text-blue-600" />
+                    <span className="text-sm text-blue-800">{externalMemberForm.cv.name}</span>
+                    <span className="text-xs text-blue-600">
+                      ({(externalMemberForm.cv.size / 1024 / 1024).toFixed(2)} MB)
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setExternalMemberForm(prev => ({ ...prev, cv: null }))}
+                      className="text-blue-600 hover:text-blue-800 ml-auto"
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+              
+              {/* Profile Picture Upload */}
+              <div className="space-y-2">
+                <Label htmlFor="externalProfilePic">Photo de profil</Label>
+                <Input
+                  id="externalProfilePic"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setExternalMemberForm(prev => ({ ...prev, profilePic: file }))
+                  }}
+                  className="cursor-pointer"
+                />
+                <p className="text-xs text-gray-500">Formats acceptés: JPG, PNG, GIF</p>
+                {externalMemberForm.profilePic && (
+                  <div className="flex items-center gap-2 p-2 bg-green-50 rounded-md">
+                    <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                      <User className="h-4 w-4 text-green-600" />
+                    </div>
+                    <span className="text-sm text-green-800">{externalMemberForm.profilePic.name}</span>
+                    <span className="text-xs text-green-600">
+                      ({(externalMemberForm.profilePic.size / 1024 / 1024).toFixed(2)} MB)
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setExternalMemberForm(prev => ({ ...prev, profilePic: null }))}
+                      className="text-green-600 hover:text-green-800 ml-auto"
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+              
+              {/* Submit Buttons */}
+              <div className="flex gap-3 pt-4">
+                <Button 
+                  type="submit" 
+                  disabled={isSubmitting}
+                  className="flex-1 bg-green-600 hover:bg-green-700"
+                >
+                  {isSubmitting ? "Création..." : "Créer le profil"}
+                </Button>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => setShowExternalMemberForm(false)}
+                  className="flex-1"
+                >
+                  Annuler
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </Card>
   )
 }

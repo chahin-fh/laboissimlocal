@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.db.models import Q
 from django.contrib.auth.models import User
+from django.contrib.auth.hashers import make_password
 from .models import ContactMessage, AccountRequest, InternalMessage
 
 class ContactMessageSerializer(serializers.ModelSerializer):
@@ -65,6 +66,63 @@ class AccountRequestViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         serializer.save()
+
+    def partial_update(self, request, *args, **kwargs):
+        """Handle account request approval/rejection"""
+        instance = self.get_object()
+        new_status = request.data.get('status')
+        
+        if new_status == 'approved':
+            # Create a new user in auth_user table
+            try:
+                # Check if user already exists
+                if User.objects.filter(email=instance.email).exists():
+                    return Response(
+                        {'error': 'A user with this email already exists'}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                # Create new user
+                user = User.objects.create(
+                    username=instance.name,  # Use email as username
+                    email=instance.email,
+                    first_name=instance.name.split()[0] if instance.name else '',
+                    last_name=' '.join(instance.name.split()[1:]) if len(instance.name.split()) > 1 else '',
+                    password=make_password(instance.password),
+                    is_active=True,
+                    is_staff=False,
+                    is_superuser=False
+                )
+                
+                # Update the account request status
+                instance.status = 'approved'
+                instance.save()
+                
+                return Response({
+                    'message': 'Account request approved and user created successfully',
+                    'user_id': user.id,
+                    'status': 'approved'
+                })
+                
+            except Exception as e:
+                return Response(
+                    {'error': f'Error creating user: {str(e)}'}, 
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        
+        elif new_status == 'rejected':
+            # Delete the account request
+            instance.delete()
+            return Response({
+                'message': 'Account request rejected and deleted',
+                'status': 'rejected'
+            })
+        
+        else:
+            return Response(
+                {'error': 'Invalid status. Must be "approved" or "rejected"'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
 class InternalMessageViewSet(viewsets.ModelViewSet):
     serializer_class = InternalMessageSerializer

@@ -56,11 +56,13 @@ const getAuthHeaders = () => {
 }
 
 // Get all events
-export const getEvents = async (): Promise<Event[]> => {
+export const getEvents = async (authHeaders?: Record<string, string>): Promise<Event[]> => {
   console.log('Fetching events from:', `${API_BASE_URL}/events/`)
   
+  const headers = authHeaders || getAuthHeaders()
+  
   const response = await fetch(`${API_BASE_URL}/events/`, {
-    headers: getAuthHeaders(),
+    headers,
   })
   
   console.log('Events response status:', response.status)

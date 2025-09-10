@@ -2,13 +2,14 @@
 
 import { createContext, useContext, useState, useEffect, type ReactNode, useCallback } from "react"
 import { jwtDecode } from "jwt-decode";
+import { useToast,toast } from "@/hooks/use-toast";
 
 interface User {
   id: string
   email: string
   name: string
   password: string
-  role: "member" | "admin"
+  role: "member" | "admin" | "chef_d_equipe"
   status: "active" | "banned" | "pending"
   lastLogin?: string
   date_joined: string
@@ -65,7 +66,7 @@ interface AuthContextType {
   banUser: (userId: string) => void
   unbanUser: (userId: string) => void
   deleteUser: (userId: string) => void
-  updateUserRole: (userId: string, role: "member" | "admin") => void
+  updateUserRole: (userId: string, role: "member" | "admin" | "chef_d_equipe") => void
   addMessage: (message: Omit<ContactMessage, "id" | "createdAt" | "status">) => Promise<void>
   updateMessageStatus: (messageId: string, status: ContactMessage["status"]) => Promise<void>
   addAccountRequest: (request: Omit<AccountRequest, "id" | "createdAt" | "status">) => Promise<void>
@@ -74,7 +75,7 @@ interface AuthContextType {
   sendInternalMessage: (receiverId: string, subject: string, message: string, replyToId?: string) => Promise<void>
   markMessageAsRead: (messageId: string) => Promise<void>
   getConversation: (userId: string) => Promise<InternalMessage[]>
-  getConversations: () => Promise<{ userId: string; userName: string; lastMessage: InternalMessage; unreadCount: number }[]>
+  getConversations: () => Promise<{ user_id: string; user_name: string; last_message: InternalMessage; unread_count: number }[]>
   getUnreadCount: (userId?: string) => Promise<number>
   getNotifications: () => Promise<{
     newMessages: number
@@ -88,6 +89,7 @@ interface AuthContextType {
   fetchUsers: () => Promise<void>
   setUserFromJWT: (token: string) => void;
   setUser: (user: User | null) => void;
+  getAuthHeaders: () => Record<string, string>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -100,20 +102,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [internalMessages, setInternalMessages] = useState<InternalMessage[]>([])
   const [connectedUsers, setConnectedUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
+  const [isFetchingUsers, setIsFetchingUsers] = useState(false)
 
   // Helper function to get auth headers
   const getAuthHeaders = () => {
     const token = localStorage.getItem("token")
+    if (!token) {
+      throw new Error("No token found")
+    }
     return {
       "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
+      Authorization: `Bearer ${token}`,
+    }
+  }
+
+  // Helper function to validate token
+  const isTokenValid = () => {
+    const token = localStorage.getItem("token")
+    if (!token) return false
+    
+    try {
+      // Check if token is expired (JWT tokens have expiration)
+      const payload = JSON.parse(atob(token.split('.')[1]))
+      const currentTime = Date.now() / 1000
+      return payload.exp > currentTime
+    } catch (error) {
+      console.error("Error validating token:", error)
+      return false
     }
   }
 
   // Helper function to handle API errors
   const handleApiError = (error: any) => {
     console.error("API Error:", error)
-    if (error.status === 401) {
+    if (error.status === 401 || error.message === "No token found") {
       logout()
     }
   }
@@ -129,7 +151,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
       })
         .then(res => {
-          if (!res.ok) throw new Error("Invalid token");
+          if (!res.ok) {
+            if (res.status === 401) {
+              // Token is invalid, clear it
+              localStorage.removeItem("token");
+              localStorage.removeItem("user");
+              throw new Error("Invalid token");
+            }
+            throw new Error("Failed to fetch user");
+          }
           return res.json();
         })
         .then(userData => {
@@ -148,13 +178,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.setItem("user", JSON.stringify(user));
           setConnectedUsers([user]);
           
-          // Fetch messages data after user is set
-          fetchMessages();
-          fetchAccountRequests();
-          fetchInternalMessages();
-          fetchUsers();
+          // Only fetch data after user is properly set
+          setTimeout(() => {
+            fetchMessages();
+            fetchAccountRequests();
+            fetchInternalMessages();
+            fetchUsers();
+          }, 100);
         })
-        .catch(() => {
+        .catch((error) => {
+          console.error("Error during authentication:", error);
           setUser(null);
           setConnectedUsers([]);
           localStorage.removeItem("user");
@@ -165,9 +198,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Fallback: try to load user from localStorage (for demo/local mode)
       const storedUser = localStorage.getItem("user");
       if (storedUser) {
-        const userData = JSON.parse(storedUser);
-        setUser(userData);
-        setConnectedUsers([userData]);
+        try {
+          const userData = JSON.parse(storedUser);
+          setUser(userData);
+          setConnectedUsers([userData]);
+        } catch (error) {
+          console.error("Error parsing stored user:", error);
+          localStorage.removeItem("user");
+        }
       }
       setLoading(false);
     }
@@ -210,6 +248,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(user);
         localStorage.setItem("user", JSON.stringify(user));
         setConnectedUsers([user]);
+        
+        // Fetch data after successful login
+        fetchMessages();
+        fetchAccountRequests();
+        fetchInternalMessages();
+        fetchUsers();
+        
         return true;
       }
       return false;
@@ -237,43 +282,139 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("users", JSON.stringify(updatedUsers))
   }
 
-  const banUser = (userId: string) => {
-    const updatedUsers = users.map((u) => (u.id === userId ? { ...u, status: "banned" as const } : u))
-    setUsers(updatedUsers)
-    localStorage.setItem("users", JSON.stringify(updatedUsers))
+  const banUser = async (userId: string) => {
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/admin/ban-user/${userId}/`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      })
 
-    if (user?.id === userId) {
-      logout()
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Erreur lors du bannissement')
+      }
+
+      const data = await response.json()
+      toast({ title: "Succès", description: data.message, variant: "default" })
+      
+      // Refresh users list
+      await fetchUsers()
+
+      // If current user was banned, logout
+      if (user?.id === userId) {
+        logout()
+      }
+    } catch (error) {
+      console.error('Error banning user:', error)
+      toast({ 
+        title: "Erreur", 
+        description: error instanceof Error ? error.message : 'Erreur lors du bannissement', 
+        variant: "destructive" 
+      })
     }
   }
 
-  const unbanUser = (userId: string) => {
-    const updatedUsers = users.map((u) => (u.id === userId ? { ...u, status: "active" as const } : u))
-    setUsers(updatedUsers)
-    localStorage.setItem("users", JSON.stringify(updatedUsers))
-  }
+  const unbanUser = async (userId: string) => {
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/admin/unban-user/${userId}/`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      })
 
-  const deleteUser = (userId: string) => {
-    const updatedUsers = users.filter((u) => u.id !== userId)
-    setUsers(updatedUsers)
-    localStorage.setItem("users", JSON.stringify(updatedUsers))
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Erreur lors du débannissement')
+      }
 
-    if (user?.id === userId) {
-      logout()
+      const data = await response.json()
+      toast({ title: "Succès", description: data.message, variant: "default" })
+      
+      // Refresh users list
+      await fetchUsers()
+    } catch (error) {
+      console.error('Error unbanning user:', error)
+      toast({ 
+        title: "Erreur", 
+        description: error instanceof Error ? error.message : 'Erreur lors du débannissement', 
+        variant: "destructive" 
+      })
     }
   }
 
-  const updateUserRole = (userId: string, role: "member" | "admin") => {
-    const updatedUsers = users.map((u) => (u.id === userId ? { ...u, role } : u))
-    setUsers(updatedUsers)
-    localStorage.setItem("users", JSON.stringify(updatedUsers))
+  const deleteUser = async (userId: string) => {
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/admin/delete-user/${userId}/`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      })
 
-    if (user?.id === userId) {
-      const updatedUser = { ...user, role }
-      setUser(updatedUser)
-      localStorage.setItem("user", JSON.stringify(updatedUser))
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Erreur lors de la suppression')
+      }
+
+      const data = await response.json()
+      toast({ title: "Succès", description: data.message, variant: "default" })
+      
+      // Refresh users list
+      await fetchUsers()
+
+      // If current user was deleted, logout
+      if (user?.id === userId) {
+        logout()
+      }
+    } catch (error) {
+      console.error('Error deleting user:', error)
+      toast({ 
+        title: "Erreur", 
+        description: error instanceof Error ? error.message : 'Erreur lors de la suppression', 
+        variant: "destructive" 
+      })
     }
   }
+
+const updateUserRole = async (
+  userId: string, // Changed to string to match User.id type
+  newRole: "member" | "admin" | "chef_d_equipe"
+) => {
+  const token = localStorage.getItem("token"); // Retrieve token from localStorage
+
+  if (!token) {
+    console.error("No authentication token available. Please log in.");
+    toast({ title: "Authentification requise", description: "Veuillez vous reconnecter.", variant: "destructive" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`http://localhost:8000/api/admin/update-user-role/${userId}/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+      body: JSON.stringify({ role: newRole }),
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      // Update local state so UI shows the new role immediately
+      setUsers((prevUsers) =>
+        prevUsers.map((user) =>
+          user.id === userId ? { ...user, role: newRole } : user
+        )
+      );
+      // Also update current user if they changed their own role
+      setUser((prev) => (prev && prev.id === userId ? { ...prev, role: newRole } : prev));
+      toast({ title: "Succès", description: data.message || "Rôle mis à jour avec succès" });
+    } else {
+      toast({ title: "Échec", description: data.error || data.detail || "Erreur lors de la mise à jour du rôle", variant: "destructive" });
+    }
+  } catch (error) {
+    console.error("Error updating role:", error);
+    toast({ title: "Erreur serveur", description: "Erreur lors de la mise à jour du rôle", variant: "destructive" });
+  }
+};
 
   const addMessage = async (messageData: Omit<ContactMessage, "id" | "createdAt" | "status">) => {
     try {
@@ -351,26 +492,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error("Failed to update account request")
       }
 
-      const updatedRequest = await response.json()
-      setAccountRequests(prev => prev.map(r => r.id === requestId ? updatedRequest : r))
-
-    if (status === "approved") {
-      const request = accountRequests.find((r) => r.id === requestId)
-      if (request) {
-        createUser({
-          email: request.email,
-          name: request.name,
-          password: request.password,
-          role: "member",
-          status: "active",
-          verified: true,
-        })
+      const result = await response.json()
+      
+      if (status === "approved") {
+        // Remove the approved request from the list since it's now a user
+        setAccountRequests(prev => prev.filter(r => r.id !== requestId))
+        // Refresh users list to show the new user
+        fetchUsers()
+      } else if (status === "rejected") {
+        // Remove the rejected request from the list since it's deleted
+        setAccountRequests(prev => prev.filter(r => r.id !== requestId))
+      } else {
+        // Update the request status in the list
+        const updatedRequest = await response.json()
+        setAccountRequests(prev => prev.map(r => r.id === requestId ? updatedRequest : r))
       }
-    }
+
     } catch (error) {
       handleApiError(error)
       throw error
-  }
+    }
   }
 
 
@@ -487,7 +628,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Function to fetch all messages from backend
   const fetchMessages = async () => {
-    if (!user) return
+    if (!user || !isTokenValid()) return
     
     try {
       const response = await fetch("http://localhost:8000/api/messages/contact/", {
@@ -495,39 +636,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
 
       if (!response.ok) {
+        if (response.status === 401) {
+          // Token expired or invalid
+          logout()
+          return
+        }
         throw new Error("Failed to fetch messages")
       }
 
       const messages = await response.json()
       setMessages(messages)
     } catch (error) {
+      console.error("Error fetching messages:", error)
       handleApiError(error)
     }
   }
 
   // Function to fetch all account requests from backend
   const fetchAccountRequests = async () => {
-    if (!user) return
+    if (!user || !isTokenValid()) return
     
     try {
+      console.log('Fetching account requests...')
       const response = await fetch("http://localhost:8000/api/messages/account-requests/", {
         headers: getAuthHeaders(),
       })
 
       if (!response.ok) {
+        if (response.status === 401) {
+          // Token expired or invalid
+          logout()
+          return
+        }
         throw new Error("Failed to fetch account requests")
       }
 
       const requests = await response.json()
+      console.log('Account requests fetched:', requests)
       setAccountRequests(requests)
     } catch (error) {
+      console.error('Error fetching account requests:', error)
       handleApiError(error)
     }
   }
 
   // Function to fetch all internal messages from backend
   const fetchInternalMessages = async () => {
-    if (!user) return
+    if (!user || !isTokenValid()) return
     
     try {
       const response = await fetch("http://localhost:8000/api/messages/internal/", {
@@ -535,26 +690,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
 
       if (!response.ok) {
+        if (response.status === 401) {
+          // Token expired or invalid
+          logout()
+          return
+        }
         throw new Error("Failed to fetch internal messages")
       }
 
       const messages = await response.json()
       setInternalMessages(messages)
     } catch (error) {
+      console.error("Error fetching internal messages:", error)
       handleApiError(error)
     }
   }
 
   // Function to fetch all users from backend
   const fetchUsers = async () => {
-    if (!user) return
+    if (!user || !isTokenValid() || isFetchingUsers) return
     
     try {
-      const response = await fetch("http://localhost:8000/api/users/", {
+      setIsFetchingUsers(true)
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/users/`, {
         headers: getAuthHeaders(),
       })
 
       if (!response.ok) {
+        if (response.status === 401) {
+          // Token expired or invalid
+          logout()
+          return
+        }
         throw new Error("Failed to fetch users")
       }
 
@@ -563,17 +730,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const mappedUsers: User[] = usersData.map((userData: any) => ({
         id: userData.id.toString(),
         email: userData.email,
-        name: userData.username,
+        name: userData.first_name && userData.last_name 
+          ? `${userData.first_name} ${userData.last_name}`.trim()
+          : userData.username,
         password: "",
-        role: userData.is_staff || userData.is_superuser ? "admin" : "member",
+        role: userData.role || (userData.is_staff || userData.is_superuser ? "admin" : "member"),
         status: userData.is_active ? "active" : "banned",
         lastLogin: new Date().toISOString(),
         date_joined: userData.date_joined || new Date().toISOString(),
-        verified: true,
+        verified: userData.verified || false,
       }))
       setUsers(mappedUsers)
     } catch (error) {
+      console.error("Error fetching users:", error)
       handleApiError(error)
+    } finally {
+      setIsFetchingUsers(false)
     }
   }
 
@@ -645,6 +817,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         fetchUsers,
         setUserFromJWT, // Export this function
         setUser, // Export setUser for Google login
+        getAuthHeaders,
       }}
     >
       {children}
@@ -659,3 +832,4 @@ export function useAuth() {
   }
   return context
 }
+
